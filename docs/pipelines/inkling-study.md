@@ -184,26 +184,31 @@ python -m looped_mechanisms.distill --train-layer 6 --capture-layer 6 --capture-
 python -m looped_mechanisms.distill --train-layer 17 --capture-layer 6 --capture-layer 17
 ```
 
-### Streamed 10M-token distillation
+### Streamed distillation on 10M pretraining and 10M SFT targets
 
-The larger run uses a pinned [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu)
+The pretraining stage uses a pinned [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu)
 sample. Deduplicated documents are tokenized into nonoverlapping sequences of
-at most 256 tokens. The corpus has 40 shards of 250,000 token positions. The
+at most 256 tokens. The prepared pretraining corpus has 40 shards of 250,000 token positions. The
 fixed three-pass NDIF teacher supplies the layer 6, 10, and 17 inputs and
-outputs, and each student sees each sequence once. Evaluation still uses the
-original 96 held-out prompt prefixes.
+outputs. The SFT stage resumes the same students on the pinned
+[SmolTalk training split](https://huggingface.co/datasets/HuggingFaceTB/smoltalk)
+for another 10 million distinct assistant-token targets. It supplies each
+selected chat of up to 256 tokens as context and supervises assistant positions.
+Each student sees the selected targets once. Evaluation still uses the original
+96 held-out prompt prefixes.
 
 The campaign holds one shard of teacher activations at a time. It retains a
 resumable full-precision model and optimizer frontier per student. Each
 shard is discarded after all three students consume it and a receipt is
-committed. At 250k, 1M, 2.5M, 5M and 10M tokens, per-student snapshots and
-held-out evaluations are kept. Snapshot linear weights use inference BF16
+committed. Snapshots and held-out evaluations are retained at early pretraining
+milestones and at each stage boundary. Snapshot linear weights use inference BF16
 and normalization weights use FP32. The dashboard slider selects the
 checkpoint whose evaluated traces are shown. Pilot epochs are labeled
 separately from the larger run.
 
 ```sh
 python -m looped_mechanisms.stream_corpus
+python -m looped_mechanisms.stream_sft
 uv run --locked python -m looped_mechanisms.stream_campaign --teacher-python "$teacher_python" --student-python "$cuda_python"
 ```
 

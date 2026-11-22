@@ -426,12 +426,14 @@
     students = results.map((data) => ({data, color: distillationColors.get(data.train_layer)}));
     const {data} = students[0];
     const labelText = selected.kind === "stream"
-      ? `FineWeb-Edu · ${selected.tokens.toLocaleString()} distinct training tokens`
+      ? `${selected.phase === "sft" ? "SFT" : "Pretraining"} · ${selected.tokens.toLocaleString()} cumulative training tokens`
       : `Pilot · ${selected.tokens.toLocaleString()} token presentations`;
     get("distill-checkpoint-label").textContent = labelText;
     control.setAttribute("aria-valuetext", labelText);
     const corpus = selected.kind === "stream"
-      ? "FineWeb-Edu training examples were seen once."
+      ? (selected.phase === "sft"
+        ? "FineWeb-Edu pretraining was followed by distillation at SmolTalk assistant positions."
+        : "FineWeb-Edu training examples were seen once.")
       : `The pilot checkpoint follows ${data.history.length} epochs over the frozen prompts.`;
     get("distill-summary").textContent = `The teacher is NDIF Inkling 2 Mini with three fixed passes. Each student has ${data.student_parameters.toLocaleString()} parameters. ${corpus} Validation uses ${data.validation_prompts} held-out prompts with prefixes up to ${data.max_prompt_tokens} tokens.`;
     const labels = [...students.map(({data: student, color}) => [`Trained on layer ${student.train_layer}`, color]),
@@ -463,7 +465,7 @@
     const groups = new Map();
     for (const entry of index.checkpoints) {
       const key = `${entry.kind}/${entry.tokens}`;
-      if (!groups.has(key)) groups.set(key, {key, kind: entry.kind, tokens: entry.tokens, files: []});
+      if (!groups.has(key)) groups.set(key, {key, kind: entry.kind, phase: entry.phase, tokens: entry.tokens, files: []});
       groups.get(key).files.push(entry);
     }
     const pilot = reports.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
@@ -481,8 +483,7 @@
       control.value = followedLatest || preserved < 0 ? control.max : preserved;
       await showCheckpoint();
     }
-    const finished = index.checkpoints.filter((entry) => entry.kind === "stream" && entry.tokens === 10_000_000);
-    if (finished.length < distillationRuns.length) window.setTimeout(loadDistillation, 30_000);
+    if (!index.completed) window.setTimeout(loadDistillation, 30_000);
   }
 
   async function start() {
