@@ -114,6 +114,11 @@ function renderBenchmark(conditions) {
   $("benchmark-empty").hidden = chartRows.length > 0;
   $("chart-area").hidden = chartRows.length === 0;
   $("benchmark-empty").textContent = "Scored items will appear here as they finish.";
+  if (chartRows.length) {
+    const counts = chartRows.map((row) => row.evaluated);
+    const low = Math.min(...counts), high = Math.max(...counts);
+    $("scored-count").textContent = `${low === high ? low : `${low}–${high}`} of ${data.target_per_source} items scored per shown condition`;
+  }
   $("scores").replaceChildren(...chartRows.map((row) => {
     const tr = document.createElement("tr");
     const pct = (100 * row.correct / row.evaluated).toFixed(1) + "%";

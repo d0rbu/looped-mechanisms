@@ -41,6 +41,7 @@ h2 { margin: 0; font: 500 2rem/1.2 Georgia, serif; letter-spacing: -.025em; }
 .panel-header p { margin: 5px 0 0; color: var(--muted); }
 .empty { margin: 18px 0 0; border: 1px dashed var(--line); border-radius: 5px; padding: 18px; background: #f9faf7; color: var(--muted); }
 .legend { display: flex; align-items: center; flex-wrap: wrap; gap: 8px; color: var(--muted); margin: 18px 0 2px; font-size: .8rem; }
+#scored-count { margin-left: auto; }
 .variable-mark, .fixed-mark { display: inline-block; width: 9px; height: 9px; background: var(--green); border-radius: 50%; }
 .fixed-mark { background: var(--orange); border-radius: 0; margin-inline-start: 14px; transform: rotate(45deg); }
 #chart { display: block; width: 100%; height: 280px; }
