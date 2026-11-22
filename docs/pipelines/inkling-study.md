@@ -35,7 +35,9 @@ indices with seed 20261121 separately for each source, and ranks 64 eligible
 unique items per source. Eligible items fit a 2400-byte rendered text
 budget and contain no reserved Inkling markers. ARC items must have four
 answer options. The byte budget favors shorter traces. Raw source text is
-replayed using text role markers. Tool calls and responses are recorded text.
+replayed using text role markers. ToolACE contributes the system instructions
+before the function catalog and the complete dialog, including recorded tool
+calls and responses. Dolci environment messages use the tool role.
 No tools are invoked during scoring or tracing.
 
 The benchmark protocol takes the highest final-token logit among the literal

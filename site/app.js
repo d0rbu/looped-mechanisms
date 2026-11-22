@@ -163,7 +163,7 @@ function renderActivations(conditions) {
       const value = stats[metric][i].toFixed(4);
       const detail = `${label} · layer ${visit.layer} · ${metric === "rms" ? "RMS" : "cosine"} ${value}`;
       const fraction = (mapped[i] - min) / (max - min || 1);
-      const cell = element("button", "", "cell");
+      const cell = element("button", visit.pass_number === null ? visit.layer : "", "cell");
       cell.type = "button";
       cell.style.setProperty("--cell", `hsl(158 40% ${96 - 67 * fraction}%)`);
       cell.title = detail;
@@ -202,6 +202,7 @@ async function refresh() {
     if (initial) {
       const sources = data.sources.map((source) => [source.name, source.name]);
       optionList("dataset", sources);
+      $("dataset").value = "ARC-Challenge";
       optionList("benchmark", data.sources.filter((source) => source.category === "Benchmark").map((source) => [source.name, source.name]));
       $("source-list").replaceChildren(...data.sources.map((source) => {
         const item = element("li", "");

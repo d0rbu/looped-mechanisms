@@ -54,7 +54,7 @@ th, td { padding: 5px 9px; text-align: left; border-bottom: 1px solid #e7ece8; }
 .axis { font: .7rem/1.4 ui-monospace, monospace; text-align: center; color: var(--muted); }
 .row-label { font: .71rem/1.4 ui-monospace, monospace; color: var(--muted); }
 .cell, .blank { min-height: 22px; border-radius: 3px; }
-.cell { background: var(--cell); border: 1px solid #0001; cursor: pointer; }
+.cell { background: var(--cell); border: 1px solid #0001; cursor: pointer; color: #102b22; font: .65rem/1 ui-monospace, monospace; }
 .blank { background: #f0f3ef; }
 :focus-visible { outline: 2px solid #b6571c; outline-offset: 2px; }
 .methods { margin: 32px 0; max-width: 740px; }

@@ -101,8 +101,8 @@ ignore = [
 known-first-party = ["scripts", "tests"]
 
 [tool.vulture]
-# ctypes reads these descriptors when marshalling foreign calls.
-ignore_names = ["argtypes", "restype"]
+# ctypes and NNsight consume these attributes at runtime.
+ignore_names = ["argtypes", "restype", "REMOTE_LOGGING"]
 paths = ["."]
 min_confidence = 60
 sort_by_size = true

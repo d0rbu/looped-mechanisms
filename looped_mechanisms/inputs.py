@@ -169,10 +169,15 @@ def transform(source: Source, row: dict[str, Any]) -> tuple[str, int | None] | N
         dialog = row["conversations"]
         if not any(message["from"] in {"tool", "tool_response", "function"} for message in dialog):
             return None
-        messages = [("system", row["system"])]
+        policy, _, _ = row["system"].partition("Here is a list of functions in JSON format")
+        messages = [("system", policy.strip())] if policy.strip() else []
         messages.extend((mapping[message["from"]], message["value"]) for message in dialog)
         return render(messages), None
-    return render([(message["role"], message["content"]) for message in row["messages"]]), None
+    messages = [
+        ("tool" if message["role"] == "environment" else message["role"], message["content"])
+        for message in row["messages"]
+    ]
+    return render(messages), None
 
 
 def freeze(source: Source, directory: Path) -> list[Item]:
