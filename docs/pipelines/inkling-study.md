@@ -112,9 +112,10 @@ completed conditions incrementally under `site/geometry/v1`.
 The probes use the hosted fixed and variable three-pass runs and the local
 IQ4_NL variable 16-pass run. A seeded split holds out 16 of 64 prompts per
 dataset. All tokens and visits from each held-out prompt stay in validation.
-Each recurrent layer has its own ridge classifier fitted on the raw active
-block vectors at four token positions. Its linear head has 3 or 16 outputs in
-loop order. The dashboard plots both runs’ top-1 validation accuracy across
+Each recurrent layer has its own neural classifier fitted on the active
+block vectors at four token positions. Each classifier has one hidden layer
+of 512 units with GELU and 3 or 16 output logits in loop order. The dashboard
+plots top-1 validation accuracy across
 recurrent layers and shows confusion counts for the selected run. The legend
 reports each run’s balanced-class chance rate.
 
@@ -127,11 +128,13 @@ loop labels. The ordered color gradient runs from the earliest to the latest
 loop in the selected condition.
 
 ```sh
-OPENBLAS_NUM_THREADS=6 NUMBA_NUM_THREADS=4 uv run --locked --with scikit-learn==1.9.1 --with umap-learn==0.6.0 python -m looped_mechanisms.probe_study
+OMP_NUM_THREADS=6 "$torch_python" -m looped_mechanisms.probe_study --classifiers-only
+OPENBLAS_NUM_THREADS=6 NUMBA_NUM_THREADS=4 "$torch_python" -m looped_mechanisms.probe_study
 ```
 
-Use `--run ndif/variable-03` to build just the hosted variable three-pass
-condition.
+Use an environment with PyTorch and the project's Python dependencies. The
+projection run also needs scikit-learn and umap-learn. Use `--run ndif/variable-03`
+to build just the hosted variable three-pass condition.
 
 ### Held-out loop prediction distributions
 
@@ -147,15 +150,13 @@ unique prompts to the original 288 training prompts and evaluates on the
 original 96 held-out prompts. It samples the same pinned source files and
 redistributes slots from exhausted sources across the remaining sources.
 All 16 loop visits and four positions per prompt contribute training
-examples at each physical layer.
+examples at layer 6.
 
-Each head has a hidden layer of width 159 with GELU and 16 logits. The head
-has 369,055 trainable parameters, compared with 36,880 for ridge. Training
-uses feature means and scales computed from training prompts, then fits for
-20 epochs with AdamW and a cosine learning-rate schedule. The aggregate
-report includes per-layer accuracy, the original ridge accuracy on the same
-prompts, and the confusion counts. The dashboard adds its accuracy curve
-when all 12 heads have been evaluated.
+The expanded layer-6 head has 5,120 hidden units with GELU and 16 logits,
+giving 11,883,536 trainable parameters. The 512-unit baseline has 1,188,368.
+Both models use feature means and scales computed from training prompts and
+fit for 20 epochs with AdamW and a cosine learning-rate schedule. The
+dashboard adds the expanded layer-6 accuracy after its held-out evaluation.
 
 ```sh
 uv run --locked python -m looped_mechanisms.large_loop_probe prepare

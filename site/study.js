@@ -68,7 +68,7 @@
     const variable16 = catalog.runs.find((run) => run.backend === "llama.cpp-iq4" && run.id === "variable-16");
     if (variable16) {
       requests.push((async () => ({
-        name: `${label(variable16)} · expanded MLP`,
+        name: `${label(variable16)} · expanded layer-6 MLP`,
         data: await json(`${runPath(variable16)}/expanded-scores.json`),
         color: "#755097",
       }))());
@@ -254,7 +254,8 @@
   function renderScores() {
     const layer = Number(get("layer").value);
     const stats = report.layers.find((row) => row.layer === layer);
-    get("accuracy").textContent = `Layer ${layer} · ${percent(stats.accuracy)} accuracy · ${report.head_dim}-output linear head · ${percent(1 / report.head_dim)} chance. Trained on ${report.train_prompts} prompts and validated on ${report.validation_prompts} separate prompts, with four token positions per loop.`;
+    const classifier = report.hidden_units ? `MLP with ${report.hidden_units} hidden units` : "linear classifier";
+    get("accuracy").textContent = `Layer ${layer} · ${percent(stats.accuracy)} accuracy · ${report.head_dim}-output ${classifier} · ${percent(1 / report.head_dim)} chance. Trained on ${report.train_prompts} prompts and validated on ${report.validation_prompts} separate prompts, with four token positions per loop.`;
     const header = node("tr");
     header.append(node("th", "Actual ↓ / Predicted →"),
       ...stats.confusion.map((_, loop) => node("th", loop)));
