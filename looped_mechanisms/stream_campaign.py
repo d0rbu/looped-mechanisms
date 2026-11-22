@@ -187,6 +187,14 @@ def main() -> None:
                     ],
                     check=True,
                 )
+                if phase == "pretrain" and consumed == args.pretrain_tokens:
+                    frontier = root / f"layer-{layer:02d}-frontier.pt"
+                    boundary = root / f"layer-{layer:02d}-pretrain-frontier.pt"
+                    # Frontier writes use atomic replacement, leaving this inode intact.
+                    if not boundary.exists():
+                        boundary.hardlink_to(frontier)
+                    elif not boundary.samefile(frontier):
+                        raise ValueError(f"Pretraining frontier differs from {boundary}")
                 if snapshot:
                     checkpoint = f"stream-{phase}-{consumed:08d}-layer-{layer:02d}"
                     wait_for_gpu()

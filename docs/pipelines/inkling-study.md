@@ -200,8 +200,9 @@ Each student sees the selected targets once. Evaluation still uses the original
 The campaign holds one shard of teacher activations at a time. It retains a
 resumable full-precision model and optimizer frontier per student. Each
 shard is discarded after all three students consume it and a receipt is
-committed. Snapshots and held-out evaluations are retained at early pretraining
-milestones and at each stage boundary. Snapshot linear weights use inference BF16
+committed. The final pretraining frontier is also retained so a larger run can
+resume pretraining from it. Snapshots and held-out evaluations are retained at
+milestones within each stage and at each stage boundary. Snapshot linear weights use inference BF16
 and normalization weights use FP32. The dashboard slider selects the
 checkpoint whose evaluated traces are shown. Pilot epochs are labeled
 separately from the larger run.
