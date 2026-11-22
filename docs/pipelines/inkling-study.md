@@ -133,19 +133,12 @@ OPENBLAS_NUM_THREADS=6 NUMBA_NUM_THREADS=4 uv run --locked --with scikit-learn==
 Use `--run ndif/variable-03` to build just the hosted variable three-pass
 condition.
 
-### Predicting the recurrent layer
+### Held-out loop prediction distributions
 
-A separate 12-output ridge classifier for each run predicts physical layers
-6–17. It uses the same prompt split as the loop classifiers and treats each
-of the four captured token positions at each loop as a separate observation.
-The histogram shows the fraction of held-out predictions in each predicted
-layer for the selected true layer. The prediction curve shows the conditional
-prediction mean, with a band of one population standard deviation on either
-side.
-
-```sh
-OPENBLAS_NUM_THREADS=6 uv run --locked --with scikit-learn==1.9.1 python -m looped_mechanisms.layer_classifier
-```
+At the selected recurrent layer, the histogram shows the fraction of
+held-out predictions in each predicted loop for a chosen true loop.
+The prediction curve shows the mean predicted loop at each true loop,
+with a band of one population standard deviation on either side.
 
 ## Decoder-layer distillation
 
@@ -189,6 +182,29 @@ into disjoint workers using `--shard` and `--shards` when needed.
 uv run --env-file .env --no-project --python .venv-ndif/bin/python -- python -m looped_mechanisms.layer_pairs train --train-layer 6 --train-layer 17 --batch-size 4
 python -m looped_mechanisms.distill --train-layer 6 --capture-layer 6 --capture-layer 17
 python -m looped_mechanisms.distill --train-layer 17 --capture-layer 6 --capture-layer 17
+```
+
+### Streamed 10M-token distillation
+
+The larger run uses a pinned [FineWeb-Edu](https://huggingface.co/datasets/HuggingFaceFW/fineweb-edu)
+sample. Deduplicated documents are tokenized into nonoverlapping sequences of
+at most 256 tokens. The corpus has 40 shards of 250,000 token positions. The
+fixed three-pass NDIF teacher supplies the layer 6, 10, and 17 inputs and
+outputs, and each student sees each sequence once. Evaluation still uses the
+original 96 held-out prompt prefixes.
+
+The campaign holds one shard of teacher activations at a time. It retains a
+resumable full-precision model and optimizer frontier per student. Each
+shard is discarded after all three students consume it and a receipt is
+committed. At 250k, 1M, 2.5M, 5M and 10M tokens, per-student snapshots and
+held-out evaluations are kept. Snapshot linear weights use inference BF16
+and normalization weights use FP32. The dashboard slider selects the
+checkpoint whose evaluated traces are shown. Pilot epochs are labeled
+separately from the larger run.
+
+```sh
+python -m looped_mechanisms.stream_corpus
+uv run --locked python -m looped_mechanisms.stream_campaign --teacher-python "$teacher_python" --student-python "$cuda_python"
 ```
 
 ## Run NDIF

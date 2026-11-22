@@ -5,11 +5,11 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f7f2">
   <title>Looped Mechanisms · Inkling 2 Mini</title>
-  <link rel="stylesheet" href="style.css?v=12">
+  <link rel="stylesheet" href="style.css?v=13">
   <script defer src="app.js?v=2"></script>
   <script defer src="plot-colors.js"></script>
   <script defer src="geometry.js?v=10"></script>
-  <script defer src="study.js?v=7"></script>
+  <script defer src="study.js?v=9"></script>
 </head>
 <body>
   <header class="topbar">
@@ -119,18 +119,20 @@
           <summary>Confusion matrix for selected layer</summary>
           <div class="table-wrap"><table id="study-confusion" aria-label="Actual loop by predicted loop"></table></div>
         </details>
-        <div id="study-layer-predictions" hidden>
-          <h3>Recurrent layer predictions</h3>
-          <p id="study-layer-prediction-note" class="geometry-note"></p>
+        <div id="study-loop-predictions">
+          <h3>Loop predictions at the selected layer</h3>
+          <div class="geometry-controls">
+            <div class="field"><label for="study-true-loop">True loop</label><select id="study-true-loop"></select></div>
+          </div>
           <div class="prediction-plots">
             <div>
-              <h4>Predicted layer distribution</h4>
-              <canvas id="study-layer-histogram" role="img"></canvas>
-              <p id="study-layer-histogram-note" class="geometry-note"></p>
+              <h4>Predicted loop distribution</h4>
+              <canvas id="study-loop-histogram" role="img"></canvas>
+              <p id="study-loop-histogram-note" class="geometry-note"></p>
             </div>
             <div>
-              <h4>Predicted layer by true layer</h4>
-              <canvas id="study-layer-trend" role="img" aria-label="Mean predicted layer and standard deviation by true layer"></canvas>
+              <h4>Predicted loop by true loop</h4>
+              <canvas id="study-loop-trend" role="img" aria-label="Mean predicted loop and standard deviation by true loop"></canvas>
               <p class="geometry-note">Shading spans one standard deviation on each side of the mean. The dashed line marks exact predictions.</p>
             </div>
           </div>
@@ -146,6 +148,11 @@
       <div class="panel-header"><h2>Layer distillation</h2></div>
       <p id="study-distill-status" class="geometry-note" role="status">Waiting for held-out distillation results.</p>
       <div id="study-distill-content" hidden>
+        <div class="field checkpoint-control">
+          <label for="study-distill-checkpoint">Student checkpoint</label>
+          <input id="study-distill-checkpoint" type="range" min="0" max="0" value="0" step="1" disabled>
+          <output id="study-distill-checkpoint-label" for="study-distill-checkpoint"></output>
+        </div>
         <p id="study-distill-summary" class="geometry-note"></p>
         <div id="study-distill-legend" class="study-legend"></div>
         <div class="prediction-plots">

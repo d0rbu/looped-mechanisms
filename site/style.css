@@ -85,3 +85,6 @@ footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1
 .prediction-plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 405px), 1fr)); gap: 20px; }
 .prediction-plots h4 { margin: 1px 0 5px; font-size: .89rem; }
 .prediction-plots canvas { display: block; width: 100%; height: 245px; }
+
+.checkpoint-control { margin: 12px 0; max-width: 460px; }
+.checkpoint-control output { font-size: .84rem; color: var(--muted); }
