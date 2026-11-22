@@ -7,7 +7,7 @@
   <title>Looped Mechanisms · Inkling 2 Mini</title>
   <link rel="stylesheet" href="style.css?v=5">
   <script defer src="app.js?v=2"></script>
-  <script defer src="geometry.js?v=3"></script>
+  <script defer src="geometry.js?v=4"></script>
 </head>
 <body>
   <header class="topbar">
@@ -78,8 +78,7 @@
           <summary>Gaussianity by layer and loop</summary>
           <p class="geometry-note">Q–Q error measures departure from a standard Gaussian across 32 standardized random projections. Median absolute excess kurtosis measures departure from Gaussian tail weight across hidden coordinates. Lower values are closer to Gaussian. Each point pools <strong id="geometry-observations"></strong> captured token activations. The simulated Gaussian Q–Q reference is <strong id="geometry-reference"></strong> for this sample size.</p>
           <div class="geometry-controls">
-            <div class="field"><label for="geometry-gaussian-layer">Gaussianity layer</label><select id="geometry-gaussian-layer"></select></div>
-            <div class="field" id="geometry-gaussian-loop-field"><label for="geometry-gaussian-loop">Loop trace</label><select id="geometry-gaussian-loop"></select></div>
+            <div class="field"><label for="geometry-gaussian-loop">Loop trace</label><select id="geometry-gaussian-loop"></select></div>
             <div class="field"><label for="geometry-gaussian-metric">Metric</label><select id="geometry-gaussian-metric"><option value="qq_rmse">Q–Q error</option><option value="median_abs_excess_kurtosis">Median |excess kurtosis|</option></select></div>
           </div>
           <canvas id="geometry-gaussian-chart" role="img" aria-label="Line plot of Gaussianity by layer and loop" aria-describedby="geometry-gaussian-point" tabindex="0"></canvas>

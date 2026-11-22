@@ -6,6 +6,7 @@
   const state = {catalog: null, condition: null, summary: null, examples: null, sample: 0, position: 0};
   let conditionVersion = 0;
   let matchVersion = 0;
+  let renderedExample = null;
   let shard = {url: null, promise: null};
 
   function node(tag, text) {
@@ -30,8 +31,8 @@
     return (await request(path)).json();
   }
 
-  function conditionPath() {
-    return `${root}/${state.condition.backend}/${state.condition.id}`;
+  function conditionPath(condition = state.condition) {
+    return `${root}/${condition.backend}/${condition.id}`;
   }
 
   function fillLoops() {
@@ -48,16 +49,12 @@
 
   function renderGaussianity() {
     if (!state.summary) return;
-    const layer = get("gaussian-layer").value;
     const loop = get("gaussian-loop").value;
     const metric = get("gaussian-metric").value;
-    const allLayers = layer === "all";
-    get("gaussian-loop-field").hidden = !allLayers;
     const series = new Map();
     for (const visit of state.summary.gaussianity) {
-      if (!allLayers && visit.layer !== Number(layer)) continue;
-      if (allLayers && loop !== "all" && visit.loop !== null && visit.loop !== Number(loop)) continue;
-      const key = allLayers ? visit.loop ?? (visit.layer < 6 ? "prelude" : "final") : "layer";
+      if (loop !== "all" && visit.loop !== null && visit.loop !== Number(loop)) continue;
+      const key = visit.loop ?? (visit.layer < 6 ? "prelude" : "final");
       if (!series.has(key)) {
         const color = typeof key === "number" ? gaussianColors[key % gaussianColors.length] : "#374e47";
         series.set(key, {color, visits: []});
@@ -65,9 +62,6 @@
       series.get(key).visits.push(visit);
     }
     gaussianChart = {
-      allLayers,
-      first: 0,
-      last: allLayers ? 23 : Math.max(state.condition.passes - 1, 0),
       label: get("gaussian-metric").selectedOptions[0].textContent,
       metric,
       reference: metric === "qq_rmse" ? state.summary.qq_reference : null,
@@ -78,13 +72,13 @@
     get("reference").textContent = state.summary.qq_reference.toFixed(4);
     get("observations").textContent = state.summary.count.toLocaleString();
     const canvas = get("gaussian-chart");
-    canvas.setAttribute("aria-label", `${gaussianChart.label} ${allLayers ? "across layers" : `at layer ${layer} across loop visits`}`);
+    canvas.setAttribute("aria-label", `${gaussianChart.label} across physical layers`);
     showGaussianPoint(-1);
   }
 
   function drawGaussianity() {
     if (!gaussianChart) return;
-    const {allLayers, first, last, label, metric, reference, series, active} = gaussianChart;
+    const {label, metric, reference, series, active} = gaussianChart;
     const canvas = get("gaussian-chart");
     const width = canvas.clientWidth;
     const height = canvas.clientHeight;
@@ -97,9 +91,8 @@
     const left = 52, right = width - 14, top = 25, bottom = height - 42;
     const values = series.flatMap(({visits}) => visits.map((visit) => visit[metric]));
     const max = Math.max(...values, reference ?? 0, 0.001) * 1.08;
-    const xValue = (visit) => allLayers ? visit.layer : visit.loop ?? 0;
-    const plottedLast = values.length === 1 ? 0 : last;
-    const x = (index) => plottedLast === first ? (left + right) / 2 : left + (index - first) / (plottedLast - first) * (right - left);
+    const lastLayer = 23;
+    const x = (layer) => left + layer / lastLayer * (right - left);
     const y = (value) => bottom - value / max * (bottom - top);
 
     ctx.font = "11px system-ui";
@@ -117,12 +110,9 @@
       ctx.fillText(value.toFixed(max < 1 ? 3 : 2), left - 7, row + 4);
     }
     ctx.textAlign = "center";
-    const step = Math.max(1, Math.ceil((plottedLast + 1) * 23 / (right - left)));
-    for (let i = first; i <= plottedLast; i += step) {
-      const tick = values.length === 1 && series[0].visits[0].loop === null ? "Single visit" : String(i);
-      ctx.fillText(tick, x(i), bottom + 17);
-    }
-    if (values.length > 1) ctx.fillText(allLayers ? "Physical layer" : "Loop index", (left + right) / 2, height - 6);
+    const step = Math.max(1, Math.ceil((lastLayer + 1) * 23 / (right - left)));
+    for (let i = 0; i <= lastLayer; i += step) ctx.fillText(i, x(i), bottom + 17);
+    ctx.fillText("Physical layer", (left + right) / 2, height - 6);
 
     if (reference !== null) {
       ctx.strokeStyle = "#667873";
@@ -135,7 +125,7 @@
     }
 
     gaussianChart.points = series.flatMap(({color, visits}) => {
-      const points = visits.map((visit) => ({visit, x: x(xValue(visit)), y: y(visit[metric])}));
+      const points = visits.map((visit) => ({visit, x: x(visit.layer), y: y(visit[metric])}));
       ctx.strokeStyle = ctx.fillStyle = color;
       ctx.lineWidth = 1.5;
       ctx.beginPath();
@@ -240,8 +230,19 @@
 
   function renderSequence() {
     state.sample = Number(get("example").value);
-    state.position = 0;
     const example = state.examples[state.sample];
+    const samePrompt = example.id === renderedExample?.id;
+    if (samePrompt
+        && example.positions.every((token, index) => token === renderedExample.positions[index])
+        && example.tokens.length === renderedExample.tokens.length
+        && example.tokens.every((token, index) => token === renderedExample.tokens[index])) {
+      showMatches();
+      return;
+    }
+    const viewport = get("sequence");
+    const scrollTop = samePrompt ? viewport.scrollTop : 0;
+    if (!samePrompt) state.position = 0;
+    renderedExample = example;
     const captured = new Map(example.positions.map((token, index) => [token, index]));
     const sequence = document.createDocumentFragment();
     for (const [index, token] of example.tokens.entries()) {
@@ -263,8 +264,8 @@
       }
       sequence.append(button);
     }
-    get("sequence").replaceChildren(sequence);
-    get("sequence").scrollTop = 0;
+    viewport.replaceChildren(sequence);
+    viewport.scrollTop = scrollTop;
     showMatches();
   }
 
@@ -299,8 +300,7 @@
     for (const button of get("sequence").querySelectorAll("button")) {
       button.setAttribute("aria-pressed", Number(button.dataset.position) === position);
     }
-    get("matches").replaceChildren();
-    get("match-status").textContent = "Finding target tokens…";
+    if (!get("matches").childElementCount) get("match-status").textContent = "Finding target tokens…";
     if (shard.url !== path) {
       const promise = request(path).then((result) => result.arrayBuffer()).then((buffer) => new DataView(buffer));
       shard = {url: path, promise};
@@ -324,6 +324,7 @@
     } catch (error) {
       if (version !== matchVersion) return;
       shard = {url: null, promise: null};
+      get("matches").replaceChildren();
       get("match-status").textContent = "Neighbor examples are temporarily unavailable.";
       console.error(error);
     }
@@ -336,20 +337,25 @@
 
   async function selectCondition() {
     const version = ++conditionVersion;
-    ++matchVersion;
-    state.condition = state.catalog.conditions[Number(get("condition").value)];
-    get("content").hidden = true;
-    get("status").hidden = false;
-    get("status").textContent = "Loading activation statistics…";
+    const content = get("content");
+    const status = get("status");
+    const condition = state.catalog.conditions[Number(get("condition").value)];
+    if (condition === state.condition) {
+      content.removeAttribute("aria-busy");
+      return;
+    }
+    content.setAttribute("aria-busy", "true");
+    status.hidden = Boolean(state.condition);
+    status.textContent = "Loading activation statistics…";
     try {
-      const path = conditionPath();
+      const path = conditionPath(condition);
       const [summary, examples] = await Promise.all([
-        json(`${path}/summary.json`), state.condition.passes > 1 ? json(`${path}/examples.json`) : null,
+        json(`${path}/summary.json`), condition.passes > 1 ? json(`${path}/examples.json`) : null,
       ]);
       if (version !== conditionVersion) return;
-      Object.assign(state, {summary, examples});
-      const layers = Array.from(new Set(summary.gaussianity.map(({layer}) => layer))).sort((a, b) => a - b);
-      options("gaussian-layer", [["all", "All layers (0–23)"], ...layers.map((layer) => [layer, layer])]);
+      ++matchVersion;
+      Object.assign(state, {condition, summary, examples});
+      content.hidden = false;
       const loops = Array.from({length: state.condition.passes}, (_, loop) => [loop, `Loop ${loop}`]);
       options("gaussian-loop", [["all", "All loop traces"], ...loops]);
       renderGaussianity();
@@ -363,24 +369,27 @@
         renderDistances();
         selectExample();
       }
-      get("content").hidden = false;
-      drawGaussianity();
-      get("status").hidden = true;
+      status.hidden = true;
     } catch (error) {
       if (version !== conditionVersion) return;
-      get("status").textContent = "Activation statistics are temporarily unavailable.";
+      if (state.condition) get("condition").value = state.catalog.conditions.indexOf(state.condition);
+      status.textContent = "Activation statistics are temporarily unavailable.";
+      status.hidden = false;
       console.error(error);
+    } finally {
+      if (version === conditionVersion) content.removeAttribute("aria-busy");
     }
   }
 
   async function start() {
     try {
       state.catalog = await json(`${root}/index.json`);
+      const defaultCondition = state.catalog.conditions.findIndex(({backend, id}) => backend === "ndif" && id === "fixed-03");
       options("condition", state.catalog.conditions.map((condition, index) => {
         const name = condition.checkpoint === "fixed" ? "Fixed" : "Variable";
         const runtime = condition.backend === "ndif" ? "NDIF" : "Local IQ4_NL";
         return [index, `${runtime} · ${name} · ${condition.passes} ${condition.passes === 1 ? "pass" : "passes"}`];
-      }));
+      }), defaultCondition);
       get("condition").disabled = false;
       await selectCondition();
     } catch (error) {
@@ -390,7 +399,7 @@
   }
 
   get("condition").addEventListener("change", selectCondition);
-  for (const control of ["gaussian-layer", "gaussian-loop", "gaussian-metric"]) {
+  for (const control of ["gaussian-loop", "gaussian-metric"]) {
     get(control).addEventListener("change", renderGaussianity);
   }
   const canvas = get("gaussian-chart");
