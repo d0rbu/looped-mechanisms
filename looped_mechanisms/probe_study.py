@@ -10,6 +10,7 @@ from numpy.typing import NDArray
 
 from looped_mechanisms.design import HIDDEN, LOCAL, NDIF, POSITIONS, Condition, visits
 from looped_mechanisms.inputs import SEED, SOURCES, Item, load_items
+from looped_mechanisms.loop_classifier import BASE_WIDTH, EPOCHS, fit, parameter_count
 from looped_mechanisms.results import atomic_json, complete, result_dir
 
 RUNS = (
@@ -33,12 +34,19 @@ def validation_ids(items: list[Item]) -> set[str]:
 
 
 def load_core(
-    root: Path, backend: str, condition: Condition, items: list[Item]
+    root: Path, backend: str, condition: Condition, items: list[Item], *, layer: int | None = None
 ) -> NDArray[np.float16]:
     folder = result_dir(root, backend, condition)
     layout = visits(condition)
-    core = [index for index, visit in enumerate(layout) if visit.pass_number is not None]
-    values = np.empty((len(items), condition.passes, 12, POSITIONS, HIDDEN), dtype=np.float16)
+    core = [
+        index
+        for index, visit in enumerate(layout)
+        if visit.pass_number is not None and (layer is None or visit.layer == layer)
+    ]
+    if not core:
+        raise ValueError(f"Physical layer {layer} does not recur")
+    layers = len(core) // condition.passes
+    values = np.empty((len(items), condition.passes, layers, POSITIONS, HIDDEN), dtype=np.float16)
 
     runtime = json.loads((folder / f"{items[0].identifier}.json").read_text())["runtime"]
     for index, item in enumerate(items):
@@ -46,7 +54,7 @@ def load_core(
             raise ValueError(f"Missing activation for {item.identifier} in {folder}")
         with np.load(folder / f"{item.identifier}.npz") as saved:
             values[index] = saved["active_block"][core].reshape(
-                condition.passes, 12, POSITIONS, HIDDEN
+                condition.passes, layers, POSITIONS, HIDDEN
             )
     return values
 
@@ -58,56 +66,70 @@ def run(
     backend: str,
     condition: Condition,
     items: list[Item],
+    *,
+    device_name: str = "cpu",
+    classifiers_only: bool = False,
+) -> None:
+    directory = output / backend / condition.name
+    directory.mkdir(parents=True, exist_ok=True)
+    values = load_core(root, backend, condition, items)
+    held_out = validation_ids(items)
+    validation = np.array([item.identifier in held_out for item in items])
+    scores = []
+    for offset in range(12):
+        layer = offset + 6
+        score = fit(
+            values[~validation, :, offset],
+            values[validation, :, offset],
+            layer=layer,
+            width=BASE_WIDTH,
+            batch_size=256,
+            device_name=device_name,
+            checkpoint=heads / f"{backend}-{condition.name}-{layer:02d}-width-{BASE_WIDTH}.pt",
+            lineage={"validation_ids": sorted(held_out)},
+        )
+        scores.append(score)
+        print(f"{backend}/{condition.name} layer {layer}: {score['accuracy']:.3%}", flush=True)
+    atomic_json(
+        directory / "scores.json",
+        {
+            "head_dim": condition.passes,
+            "hidden_units": BASE_WIDTH,
+            "parameters_per_classifier": parameter_count(BASE_WIDTH, condition.passes),
+            "epochs": EPOCHS,
+            "train_prompts": int(np.count_nonzero(~validation)),
+            "validation_prompts": int(np.count_nonzero(validation)),
+            "positions": POSITIONS,
+            "layers": scores,
+        },
+    )
+    if not classifiers_only:
+        projections(directory, condition, items, values, validation)
+
+
+def projections(
+    directory: Path,
+    condition: Condition,
+    items: list[Item],
+    values: NDArray[np.float16],
+    validation: NDArray[np.bool_],
 ) -> None:
     from sklearn.decomposition import PCA  # ty: ignore[unresolved-import]
     from sklearn.discriminant_analysis import (  # ty: ignore[unresolved-import]
         LinearDiscriminantAnalysis,
     )
-    from sklearn.linear_model import RidgeClassifier  # ty: ignore[unresolved-import]
     from sklearn.manifold import TSNE  # ty: ignore[unresolved-import]
-    from sklearn.metrics import confusion_matrix  # ty: ignore[unresolved-import]
     from umap import UMAP  # ty: ignore[unresolved-import]
 
-    directory = output / backend / condition.name
-    directory.mkdir(parents=True, exist_ok=True)
-    heads.mkdir(parents=True, exist_ok=True)
-    values = load_core(root, backend, condition, items)
-    held_out = validation_ids(items)
-    validation = np.array([item.identifier in held_out for item in items])
     val_indices = np.flatnonzero(validation)
-    labels = np.broadcast_to(
-        np.arange(condition.passes)[None, :, None], (len(items), condition.passes, POSITIONS)
+    train_y = np.tile(
+        np.repeat(np.arange(condition.passes), POSITIONS), np.count_nonzero(~validation)
     )
-    train_y = labels[~validation].ravel()
-    val_y = labels[validation].ravel()
     rng = np.random.default_rng(SEED)
     directions = np.linalg.qr(rng.standard_normal((HIDDEN, 2)))[0].astype(np.float32)
-    scores = []
     for offset in range(12):
         layer = offset + 6
         train_x = values[~validation, :, offset].reshape(-1, HIDDEN).astype(np.float32)
-        val_x = values[validation, :, offset].reshape(-1, HIDDEN).astype(np.float32)
-        head = RidgeClassifier(alpha=10.0).fit(train_x.astype(np.float64), train_y)
-        expected = (condition.passes, HIDDEN)
-        if head.coef_.shape != expected:
-            raise ValueError(f"Expected a {expected} loop head, got {head.coef_.shape}")
-        predicted = head.predict(val_x)
-        matrix = confusion_matrix(val_y, predicted, labels=np.arange(condition.passes))
-        scores.append(
-            {
-                "layer": layer,
-                "accuracy": float(np.mean(predicted == val_y)),
-                "correct": int(np.count_nonzero(predicted == val_y)),
-                "examples": len(val_y),
-                "confusion": matrix.tolist(),
-            }
-        )
-        np.savez(
-            heads / f"{backend}-{condition.name}-{layer:02d}.npz",
-            weights=head.coef_,
-            bias=head.intercept_,
-        )
-
         pca = PCA(n_components=50, svd_solver="randomized", random_state=SEED)
         low_train = pca.fit_transform(train_x)
         plot_x = values[validation, :, offset, -1].reshape(-1, HIDDEN).astype(np.float32)
@@ -145,17 +167,6 @@ def run(
                 "loops": condition.passes,
             },
         )
-        atomic_json(
-            directory / "scores.json",
-            {
-                "head_dim": condition.passes,
-                "train_prompts": int(np.count_nonzero(~validation)),
-                "validation_prompts": int(np.count_nonzero(validation)),
-                "positions": POSITIONS,
-                "layers": scores,
-            },
-        )
-        print(f"{backend}/{condition.name} layer {layer}: {scores[-1]['accuracy']:.3%}", flush=True)
 
 
 def publish_catalog(output: Path) -> None:
@@ -180,14 +191,28 @@ def main() -> None:
     parser.add_argument("--artifacts", type=Path, default=Path("artifacts"))
     parser.add_argument("--output", type=Path, default=Path("site/loop-study/v1"))
     parser.add_argument("--heads", type=Path, default=Path("artifacts/loop-heads"))
-    runs = {f"{backend}/{condition.name}": (backend, condition) for backend, condition in RUNS}
-    parser.add_argument("--run", choices=runs)
+    runs = {
+        f"{backend}/{condition.name}": (backend, condition)
+        for backend, condition in (*RUNS, (LOCAL, Condition("variable", 3)))
+    }
+    parser.add_argument("--run", choices=runs, action="append")
+    parser.add_argument("--classifiers-only", action="store_true")
+    parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
     items = load_items(args.cohort)
     args.output.mkdir(parents=True, exist_ok=True)
-    selected = [runs[args.run]] if args.run else RUNS
+    selected = [runs[name] for name in args.run] if args.run else RUNS
     for backend, condition in selected:
-        run(args.artifacts, args.output, args.heads, backend, condition, items)
+        run(
+            args.artifacts,
+            args.output,
+            args.heads,
+            backend,
+            condition,
+            items,
+            device_name=args.device,
+            classifiers_only=args.classifiers_only,
+        )
     publish_catalog(args.output)
 
 
