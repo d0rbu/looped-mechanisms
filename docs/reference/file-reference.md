@@ -68,5 +68,8 @@
 | `looped_mechanisms/results.py` | Raw activation validation and result persistence |
 | `looped_mechanisms/report.py` | Public aggregate generator |
 | `looped_mechanisms/geometry.py` | Gaussianity summaries and directed cross-loop nearest-neighbor indexes |
-| `site/` | Static benchmark dashboard, activation geometry explorer, and generated aggregate data |
+| `looped_mechanisms/probe_study.py` | Prompt-grouped loop classifier training and five activation projections |
+| `looped_mechanisms/layer_pairs.py` | NDIF decoder inputs and outputs for the distillation study |
+| `looped_mechanisms/distill.py` | Teacher-layer-sized student training and transfer evaluation |
+| `site/` | Benchmark, activation geometry, loop classification, projection, and layer transfer dashboard |
 | `.agents/skills/` | Pinned upstream NDIF skills |

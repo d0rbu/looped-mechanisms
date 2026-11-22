@@ -89,15 +89,11 @@ captured tokens at the same physical layer in the target loop, excluding
 the entire source prompt. Distances are Euclidean divided by the square
 root of the hidden width. The displayed pair average uses the nearest
 candidate for each source token. The row mean averages over all other loops.
-Select a distance matrix cell to choose a source and target loop. The
-explorer shows three ranked matches from the frozen cohort, each with the
-full sequence prefix and up to 32 following tokens. Hover and keyboard focus
-are available on the four recorded source tokens. The display uses zero-based loop indices.
+The table displays zero-based loop indices. Raw activation tensors remain in
+the artifact directory.
 
-Build the public summaries and neighbor indexes from local artifacts and
-the pinned tokenizer JSON shared by both checkpoints. The indexes contain
-target token indices and distances, with separate tokenized examples and
-dataset attribution. Raw activation tensors remain in the artifact directory.
+Build the summaries from local artifacts and the pinned tokenizer JSON shared
+by both checkpoints.
 
 ```sh
 OPENBLAS_NUM_THREADS=8 uv run --locked python -m looped_mechanisms.geometry --tokenizer "$tokenizer_json"
@@ -106,6 +102,62 @@ OPENBLAS_NUM_THREADS=8 uv run --locked python -m looped_mechanisms.geometry --to
 For CUDA acceleration, add `--with cupy-cuda12x` before `python` and
 `--cuda` after `--tokenizer "$tokenizer_json"`. The builder publishes
 completed conditions incrementally under `site/geometry/v1`.
+
+## Loop classification and projections
+
+The files for the hosted fixed three-pass model and local IQ4_NL variable
+16-pass model supply the probes. A seeded split holds out 16 of 64 prompts per
+dataset. All tokens and visits from each held-out prompt stay in validation.
+Each recurrent layer has its own ridge classifier fitted on the raw active
+block vectors at four token positions. Its linear head has 3 or 16 outputs in
+loop order. The dashboard reports top-1 validation accuracy and confusion
+counts, with the balanced-class chance rate as a reference.
+
+The five projections share one set of plotted observations, the final
+captured token on each held-out prompt at each loop visit. The random map uses
+two orthonormal seeded directions. PCA and LDA are fitted on training
+activations. LDA uses loop labels and the first 50 training PCA coordinates.
+t-SNE and UMAP embed the held-out points in those 50 PCA coordinates without
+loop labels. Colors identify loop indices for every projection.
+
+```sh
+OPENBLAS_NUM_THREADS=6 NUMBA_NUM_THREADS=4 uv run --locked --with scikit-learn==1.9.1 --with umap-learn==0.6.0 python -m looped_mechanisms.probe_study
+```
+
+## Decoder-layer distillation
+
+The fixed three-pass NDIF decoder is the teacher. The capture uses up to the
+first 128 tokens of each frozen prompt. It saves the incoming active sequence
+and completed blocks, plus the outgoing active sequence. At recurrent
+physical layers the experiment targets the first pass. The prelude runs
+before the loops, and final layers receive the fixed model's final-pass
+context. The experiment compares the same frozen student at all 24 physical
+indices. It does not provide the student with the physical layer index.
+
+Training uses only layer 10 on 288 training prompts. The student has causal
+attention, a dense feed-forward block, and a residual connection to the
+incoming active block. Its 1,052,840,448 trainable parameters exceed layer
+10's 1,048,818,048 parameters, counted from the pinned Transformers model
+configuration. Validation uses every token of the 96 held-out prompt prefixes.
+The report includes raw RMSE, RMSE normalized by the RMS of the teacher
+output, cosine, and the copy-input baseline. At six-layer boundaries the
+teacher resets its active block, and transfer there can fail for a different
+reason than transfer within a block.
+
+Capture both splits with the same NDIF environment used below.
+
+```sh
+uv run --env-file .env --no-project --python .venv-ndif/bin/python -- python -m looped_mechanisms.layer_pairs train --batch-size 8
+uv run --env-file .env --no-project --python .venv-ndif/bin/python -- python -m looped_mechanisms.layer_pairs validation --batch-size 3
+```
+
+Use a separate environment with CUDA PyTorch 2.10 and the project's Python
+dependencies to train and evaluate.
+
+```sh
+python -m looped_mechanisms.distill --phase train
+python -m looped_mechanisms.distill --phase evaluate
+```
 
 ## Run NDIF
 

@@ -5,9 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f7f2">
   <title>Looped Mechanisms · Inkling 2 Mini</title>
-  <link rel="stylesheet" href="style.css?v=5">
+  <link rel="stylesheet" href="style.css?v=7">
   <script defer src="app.js?v=2"></script>
-  <script defer src="geometry.js?v=6"></script>
+  <script defer src="geometry.js?v=7"></script>
+  <script defer src="study.js?v=1"></script>
 </head>
 <body>
   <header class="topbar">
@@ -15,6 +16,7 @@
     <nav aria-label="Site navigation">
       <a href="#benchmarks">Benchmarks</a>
       <a href="#geometry">Activation geometry</a>
+      <a href="#loop-study">Loop study</a>
       <a href="https://github.com/d0rbu/looped-mechanisms">Source ↗</a>
     </nav>
   </header>
@@ -85,22 +87,49 @@
           <p class="geometry-note gaussian-point" id="geometry-gaussian-point" aria-live="polite"></p>
         </details>
         <div class="geometry-block" id="geometry-neighbor">
-          <h3>Cross-loop nearest neighbors</h3>
-          <p class="geometry-note">Each cell averages the closest target distance across captured source tokens. Distance is Euclidean divided by √2,304. Candidates from the same prompt are excluded. Select a cell to choose the source and target loops.</p>
+          <h3>Cross-loop nearest-neighbor distances</h3>
+          <p class="geometry-note">Each cell averages the closest target distance across captured source tokens. Distance is Euclidean divided by √2,304. Candidates from the same prompt are excluded.</p>
           <div class="geometry-controls">
             <div class="field"><label for="geometry-layer">Recurrent layer</label><select id="geometry-layer"></select></div>
           </div>
           <div class="table-wrap"><table id="geometry-distances" aria-label="Average nearest-neighbor distances by source and target loop"></table></div>
-          <div class="geometry-controls example-controls">
-            <div class="field"><label for="geometry-dataset">Source dataset</label><select id="geometry-dataset"></select></div>
-            <div class="field"><label for="geometry-example">Example sequence</label><select id="geometry-example"></select></div>
-          </div>
-          <p class="geometry-note">Hover over or focus a highlighted token to find its closest target tokens. The archive contains four token positions per sequence.</p>
-          <div class="token-sequence" id="geometry-sequence" aria-label="Source example sequence"></div>
-          <p class="geometry-note" id="geometry-match-status" role="status"></p>
-          <ol class="geometry-matches" id="geometry-matches"></ol>
         </div>
         <p class="geometry-note" id="geometry-single" hidden>Cross-loop distances require a checkpoint run with at least two loops.</p>
+      </div>
+    </section>
+    <section class="panel" id="loop-study">
+      <div class="panel-header"><h2>Loop classification and projections</h2></div>
+      <div class="geometry-controls">
+        <div class="field"><label for="study-condition">Checkpoint and runtime</label><select id="study-condition" disabled></select></div>
+        <div class="field"><label for="study-layer">Recurrent layer</label><select id="study-layer"></select></div>
+        <div class="field"><label for="study-method">Projection</label><select id="study-method"></select></div>
+      </div>
+      <p id="study-status" class="geometry-note" role="status">Loading loop study…</p>
+      <div id="study-content" hidden>
+        <h3>Validation accuracy</h3>
+        <p id="study-accuracy" class="geometry-note"></p>
+        <details>
+          <summary>Accuracy by recurrent layer</summary>
+          <div class="table-wrap"><table><thead><tr><th>Layer</th><th>Accuracy</th><th>Correct / scored</th></tr></thead><tbody id="study-scores"></tbody></table></div>
+        </details>
+        <details>
+          <summary>Confusion matrix for selected layer</summary>
+          <div class="table-wrap"><table id="study-confusion" aria-label="Actual loop by predicted loop"></table></div>
+        </details>
+        <h3>Held-out activations</h3>
+        <p id="study-projection-note" class="geometry-note"></p>
+        <div id="study-legend" class="study-legend" aria-label="Filter by loop index"></div>
+        <canvas id="study-plot" aria-label="Activation projection colored by loop index" role="img"></canvas>
+        <p id="study-point" class="geometry-note gaussian-point" aria-live="polite">Hover over a point to see its dataset and loop.</p>
+      </div>
+    </section>
+    <section class="panel" id="distillation">
+      <div class="panel-header"><h2>Layer distillation</h2></div>
+      <p id="study-distill-status" class="geometry-note" role="status">Waiting for held-out distillation results.</p>
+      <div id="study-distill-content" hidden>
+        <p id="study-distill-summary" class="geometry-note"></p>
+        <p class="geometry-note">Lower normalized RMSE is better. Copy baseline predicts the outgoing activation from the unchanged incoming active block.</p>
+        <div class="table-wrap"><table><thead><tr><th>Test layer</th><th>Student normalized RMSE</th><th>Copy normalized RMSE</th><th>Student cosine</th><th>Validation tokens</th></tr></thead><tbody id="study-distill-rows"></tbody></table></div>
       </div>
     </section>
   </main>
