@@ -174,6 +174,7 @@
   }
 
   async function loadDistillation() {
+    const status = get("distill-status");
     try {
       const data = await json("distillation.json");
       get("distill-summary").textContent = `Trained on layer ${data.train_layer} with ${data.student_parameters.toLocaleString()} parameters versus ${data.teacher_parameters.toLocaleString()} in the NDIF teacher layer. Validation uses ${data.validation_prompts} held-out prompt prefixes of up to ${data.max_prompt_tokens} tokens. The same student is evaluated at every layer.`;
@@ -184,11 +185,14 @@
           score.cosine.toFixed(4), score.tokens.toLocaleString()].map((value) => node("td", value)));
         return row;
       }));
-      get("distill-status").hidden = true;
+      status.hidden = data.layers.length === 24;
+      status.textContent = `${data.layers.length}/24 evaluation layers available.`;
       get("distill-content").hidden = false;
+      if (status.hidden) return;
     } catch {
-      get("distill-status").textContent = "The training and transfer evaluation results are pending.";
+      if (get("distill-content").hidden) status.textContent = "Waiting for held-out distillation results.";
     }
+    window.setTimeout(loadDistillation, 30_000);
   }
 
   async function start() {
