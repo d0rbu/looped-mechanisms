@@ -9,7 +9,7 @@
   <script defer src="app.js?v=2"></script>
   <script defer src="plot-colors.js"></script>
   <script defer src="geometry.js?v=10"></script>
-  <script defer src="study.js?v=13"></script>
+  <script defer src="study.js?v=14"></script>
 </head>
 <body>
   <header class="topbar">
@@ -102,9 +102,9 @@
     <section class="panel" id="loop-study">
       <div class="panel-header"><h2>Loop classification and projections</h2></div>
       <div class="geometry-controls">
-        <div class="field"><label for="study-condition">Checkpoint and runtime</label><select id="study-condition" disabled></select></div>
+        <div class="field"><label for="study-condition">Checkpoint, runtime, and loop count</label><select id="study-condition" disabled></select></div>
         <div class="field"><label for="study-layer">Recurrent layer</label><select id="study-layer"></select></div>
-        <div class="field"><label for="study-method">Projection</label><select id="study-method"></select></div>
+        <div class="field" id="study-projection-control"><label for="study-method">Projection</label><select id="study-method"></select></div>
       </div>
       <p id="study-status" class="geometry-note" role="status">Loading loop study…</p>
       <div id="study-content" hidden>
@@ -137,11 +137,13 @@
             </div>
           </div>
         </div>
-        <h3>Held-out activations</h3>
-        <p id="study-projection-note" class="geometry-note"></p>
-        <div id="study-legend" class="study-legend" aria-label="Filter by loop index"></div>
-        <canvas id="study-plot" aria-label="Activation projection colored by loop index" role="img"></canvas>
-        <p id="study-point" class="geometry-note gaussian-point" aria-live="polite">Hover over a point to see its dataset and loop.</p>
+        <div id="study-projection-content">
+          <h3>Held-out activations</h3>
+          <p id="study-projection-note" class="geometry-note"></p>
+          <div id="study-legend" class="study-legend" aria-label="Filter by loop index"></div>
+          <canvas id="study-plot" aria-label="Activation projection colored by loop index" role="img"></canvas>
+          <p id="study-point" class="geometry-note gaussian-point" aria-live="polite">Hover over a point to see its dataset and loop.</p>
+        </div>
       </div>
     </section>
     <section class="panel" id="distillation">

@@ -249,8 +249,9 @@ def main() -> None:
     parser.add_argument("--library", type=Path, default=Path("build/libloop_capture.so"))
     parser.add_argument("--offset", type=int, default=0)
     parser.add_argument("--count", type=int, default=128)
-    parser.add_argument("--passes", type=int, choices=(3, 16), default=16)
+    parser.add_argument("--passes", type=int, choices=range(2, 17), default=16)
     parser.add_argument("--checkpoint", choices=("fixed", "variable"), default="variable")
+    parser.add_argument("--capture-root", type=Path)
     parser.add_argument("--compact", action="store_true")
     parser.add_argument("--yield-to-distillation", action="store_true")
     args = parser.parse_args()
@@ -264,7 +265,7 @@ def main() -> None:
     if args.action == "capture-hosted":
         from looped_mechanisms.ndif_run import run_condition as run_hosted
 
-        run_hosted(Condition(args.checkpoint, 3), examples, CAPTURES, 8)
+        run_hosted(Condition(args.checkpoint, 3), examples, args.capture_root or CAPTURES, 8)
         return
     if args.action == "train":
         train(
@@ -274,14 +275,14 @@ def main() -> None:
     if args.models is None or args.offset < 0 or args.count <= 0:
         parser.error("capture requires --models, a nonnegative offset, and a positive count")
     if args.compact:
-        if args.passes != MEASURED.passes:
+        if args.checkpoint != MEASURED.checkpoint or args.passes != MEASURED.passes:
             parser.error("compact capture is for the expanded 16-loop probe")
         examples = load_examples(args.supplement)
     run_condition(
         load_library(args.library),
-        Condition("variable", args.passes),
+        Condition(args.checkpoint, args.passes),
         examples[args.offset : args.offset + args.count],
-        COMPACT_CAPTURES if args.compact else CAPTURES,
+        args.capture_root or (COMPACT_CAPTURES if args.compact else CAPTURES),
         args.models,
         threads=4,
         should_yield=distillation_ready if args.yield_to_distillation else None,

@@ -63,12 +63,17 @@
   const percent = (fraction) => `${(fraction * 100).toFixed(1)}%`;
   async function loadComparison() {
     const requests = catalog.runs.map(async (run, index) => ({
-      name: label(run), data: await scoresFor(run), color: accuracyColors[index % accuracyColors.length],
+      path: runPath(run),
+      reference: index < accuracyColors.length,
+      name: label(run),
+      data: await scoresFor(run),
+      color: accuracyColors[index] ?? "#363a42",
     }));
     const variable16 = catalog.runs.find((run) => run.backend === "llama.cpp-iq4" && run.id === "variable-16");
     if (variable16) {
       requests.push((async () => ({
         name: `${label(variable16)} · expanded layer-6 MLP`,
+        reference: true,
         data: await json(`${runPath(variable16)}/expanded-scores.json`),
         color: "#755097",
       }))());
@@ -76,7 +81,18 @@
     const loaded = await Promise.allSettled(requests);
     comparison = loaded.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
     if (!comparison.length) return;
-    get("accuracy-legend").replaceChildren(...comparison.map(({name, data, color}) => {
+    updateAccuracyLegend();
+    get("accuracy-comparison").hidden = false;
+    drawAccuracy();
+  }
+
+  function visibleComparison() {
+    const path = runPath(selectedRun());
+    return comparison.filter((entry) => entry.reference || entry.path === path);
+  }
+
+  function updateAccuracyLegend() {
+    get("accuracy-legend").replaceChildren(...visibleComparison().map(({name, data, color}) => {
       const labelNode = node("div");
       const dot = node("span");
       dot.style.setProperty("--loop-color", color);
@@ -84,8 +100,6 @@
       labelNode.append(dot, `${name} (${data.train_prompts.toLocaleString()} training prompts, ${percent(1 / data.head_dim)} chance)`);
       return labelNode;
     }));
-    get("accuracy-comparison").hidden = false;
-    drawAccuracy();
   }
 
   function drawAccuracy() {
@@ -127,7 +141,7 @@
     ctx.stroke();
     ctx.setLineDash([]);
 
-    for (const {data, color} of comparison) {
+    for (const {data, color} of visibleComparison()) {
       ctx.strokeStyle = ctx.fillStyle = color;
       ctx.lineWidth = 2;
       ctx.beginPath();
@@ -139,7 +153,7 @@
         ctx.fill();
       }
     }
-    const values = comparison.flatMap(({name, data}) => {
+    const values = visibleComparison().flatMap(({name, data}) => {
       const row = data.layers.find(({layer}) => layer === selected);
       return row ? [`${name} ${percent(row.accuracy)}`] : [];
     });
@@ -342,6 +356,7 @@
     if (!report) return;
     renderScores();
     const version = ++projectionVersion;
+    if (selectedRun().projections === false) return;
     try {
       const layer = get("layer").value;
       const data = await json(`${runPath(selectedRun())}/layer-${layer.padStart(2, "0")}.json`);
@@ -366,6 +381,11 @@
       const data = await scoresFor(run);
       if (version !== conditionVersion) return;
       report = data;
+      const hasProjection = run.projections !== false;
+      projection = null;
+      get("projection-content").hidden = !hasProjection;
+      get("projection-control").hidden = !hasProjection;
+      updateAccuracyLegend();
       options("true-loop", Array.from({length: data.head_dim}, (_, loop) => [loop, `Loop ${loop}`]));
 
       hiddenLoops = new Set();

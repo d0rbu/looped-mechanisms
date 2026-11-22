@@ -9,7 +9,7 @@ from pathlib import Path
 import numpy as np
 from numpy.typing import NDArray
 
-from looped_mechanisms.design import HIDDEN, LOCAL, NDIF, POSITIONS, Condition, visits
+from looped_mechanisms.design import HIDDEN, LOCAL, NDIF, POSITIONS, Condition, conditions, visits
 from looped_mechanisms.inputs import SEED, SOURCES, Item, load_items
 from looped_mechanisms.loop_classifier import BASE_WIDTH, EPOCHS, fit, parameter_count
 from looped_mechanisms.results import atomic_json, complete, result_dir
@@ -18,6 +18,14 @@ RUNS = (
     (NDIF, Condition("fixed", 3)),
     (LOCAL, Condition("variable", 16)),
     (NDIF, Condition("variable", 3)),
+)
+SWEEP_RUNS = (
+    *RUNS,
+    *(
+        (LOCAL, condition)
+        for condition in conditions(LOCAL)
+        if condition.passes > 1 and (LOCAL, condition) not in RUNS
+    ),
 )
 METHODS = ("random", "pca", "tsne", "umap", "lda")
 VALIDATION_PER_SOURCE = 16
@@ -179,7 +187,10 @@ def projections(
         low_train = pca.fit_transform(train_x)
         plot_x = values[validation, :, offset, -1].reshape(-1, HIDDEN).astype(np.float32)
         low_plot = pca.transform(plot_x)
-        lda = LinearDiscriminantAnalysis(n_components=2)
+        lda = LinearDiscriminantAnalysis(n_components=min(2, condition.passes - 1))
+        discriminants = lda.fit(low_train, train_y).transform(low_plot)
+        if discriminants.shape[1] == 1:
+            discriminants = np.column_stack((discriminants, np.zeros(len(discriminants))))
         methods = {
             "random": (plot_x - pca.mean_) @ directions,
             "pca": low_plot[:, :2],
@@ -198,7 +209,7 @@ def projections(
                 n_jobs=1,
                 compatibility_layout=True,
             ).fit_transform(low_plot),
-            "lda": lda.fit(low_train, train_y).transform(low_plot),
+            "lda": discriminants,
         }
         atomic_json(
             directory / f"layer-{layer:02d}.json",
@@ -216,11 +227,20 @@ def projections(
 
 def publish_catalog(output: Path) -> None:
     available = []
-    for backend, condition in RUNS:
+    for backend, condition in SWEEP_RUNS:
         directory = output / backend / condition.name
         scores_path = directory / "scores.json"
         if scores_path.is_file() and len(json.loads(scores_path.read_text())["layers"]) == 12:
-            available.append({"backend": backend, "id": condition.name, **asdict(condition)})
+            available.append(
+                {
+                    "backend": backend,
+                    "id": condition.name,
+                    "projections": all(
+                        (directory / f"layer-{layer:02d}.json").is_file() for layer in range(6, 18)
+                    ),
+                    **asdict(condition),
+                }
+            )
     atomic_json(
         output / "index.json",
         {
@@ -239,8 +259,7 @@ def main() -> None:
     parser.add_argument("--extra-cohort", type=Path)
     parser.add_argument("--extra-artifacts", type=Path)
     runs = {
-        f"{backend}/{condition.name}": (backend, condition)
-        for backend, condition in (*RUNS, (LOCAL, Condition("variable", 3)))
+        f"{backend}/{condition.name}": (backend, condition) for backend, condition in SWEEP_RUNS
     }
     parser.add_argument("--run", choices=runs, action="append")
     parser.add_argument("--classifiers-only", action="store_true")
@@ -261,7 +280,9 @@ def main() -> None:
                 "An expanded baseline requires --extra-artifacts and exactly 2,880 training prompts"
             )
     args.output.mkdir(parents=True, exist_ok=True)
-    selected = [runs[name] for name in args.run] if args.run else RUNS
+    selected = SWEEP_RUNS if args.classifiers_only else RUNS
+    if args.run:
+        selected = tuple(runs[name] for name in args.run)
     for backend, condition in selected:
         run(
             args.artifacts,

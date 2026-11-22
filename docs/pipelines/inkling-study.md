@@ -109,15 +109,18 @@ completed conditions incrementally under `site/geometry/v1`.
 
 ## Loop classification and projections
 
-The probes use the hosted fixed and variable three-pass runs and the local
-IQ4_NL variable 16-pass run. A seeded split holds out 16 of 64 prompts per
+The loop classifier sweep covers the hosted fixed and variable three-pass
+runs, the local fixed three-pass run, and the local variable runs from
+two through 16 passes. The one-pass run has a single loop label. A seeded
+split holds out 16 of 64 prompts per
 dataset. All tokens and visits from each held-out prompt stay in validation.
 Each recurrent layer has its own neural classifier fitted on the active
 block vectors at four token positions. Each classifier has one hidden layer
 of 512 units with GELU and 3 or 16 output logits in loop order. The dashboard
 plots top-1 validation accuracy across
 recurrent layers and shows confusion counts for the selected run. The legend
-reports each run’s balanced-class chance rate.
+reports each run’s balanced-class chance rate. Activation projections are
+available for conditions with a published embedding.
 
 The five projections share one set of plotted observations, the final
 captured token on each held-out prompt at each loop visit. The random map uses
