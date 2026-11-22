@@ -6,6 +6,7 @@ import pytest
 
 from looped_mechanisms.design import HIDDEN, LOCAL, NDIF, POSITIONS, Condition, conditions, visits
 from looped_mechanisms.inputs import Item, choice_prompt
+from looped_mechanisms.probe_study import load_core
 from looped_mechanisms.report import build_report
 from looped_mechanisms.results import complete, positions, result_dir, save_result
 
@@ -84,3 +85,37 @@ def test_reject_incomplete_or_invalid_vectors(tmp_path: Path) -> None:
     with pytest.raises(ValueError, match="Invalid answer"):
         save_result(tmp_path, condition, item, "test", [1, 2, 3, 4], vectors, [0, 1, 2, 3])
     assert not list(tmp_path.iterdir())
+
+
+def test_compact_capture_preserves_layer_vectors_and_provenance(tmp_path: Path) -> None:
+    condition = Condition("variable", 16)
+    item = Item("sample", "SmolTalk train", 0, 0, "A prompt")
+    layout = visits(condition)
+    vectors = np.broadcast_to(
+        np.arange(len(layout), dtype=np.float32)[:, None, None],
+        (len(layout), POSITIONS, HIDDEN),
+    )
+    selected = [i for i, visit in enumerate(layout) if visit.layer == 6]
+    roots = (tmp_path / "full", tmp_path / "compact")
+    full, compact = (result_dir(root, LOCAL, condition) for root in roots)
+    save_result(full, condition, item, "test-runtime", [1, 2, 3, 4], vectors, None)
+    save_result(
+        compact,
+        condition,
+        item,
+        "test-runtime",
+        [1, 2, 3, 4],
+        vectors[selected],
+        None,
+        capture_layer=6,
+    )
+    expected = load_core(roots[0], LOCAL, condition, [item], layer=6)
+    out = np.empty_like(expected)
+    result = load_core(roots[1], LOCAL, condition, [item], layer=6, capture_layer=6, out=out)
+    assert result is out
+    assert np.array_equal(result, expected)
+    assert complete(compact, item, "test-runtime", capture_layer=6)
+    with pytest.raises(ValueError, match="provenance"):
+        complete(compact, item, "test-runtime")
+    with pytest.raises(ValueError, match="only its recorded layer"):
+        load_core(roots[1], LOCAL, condition, [item], layer=7, capture_layer=6)

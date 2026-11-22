@@ -1,6 +1,7 @@
 """Fit held-out loop classifiers and build loop-colored projections."""
 
 import argparse
+import hashlib
 import json
 from dataclasses import asdict
 from pathlib import Path
@@ -34,10 +35,25 @@ def validation_ids(items: list[Item]) -> set[str]:
 
 
 def load_core(
-    root: Path, backend: str, condition: Condition, items: list[Item], *, layer: int | None = None
+    root: Path,
+    backend: str,
+    condition: Condition,
+    items: list[Item],
+    *,
+    layer: int | None = None,
+    capture_layer: int | None = None,
+    out: NDArray[np.float16] | None = None,
 ) -> NDArray[np.float16]:
     folder = result_dir(root, backend, condition)
     layout = visits(condition)
+    if capture_layer is not None:
+        if capture_layer != layer:
+            raise ValueError("A compact capture can supply only its recorded layer")
+        layout = tuple(
+            visit
+            for visit in layout
+            if visit.layer == capture_layer and visit.pass_number is not None
+        )
     core = [
         index
         for index, visit in enumerate(layout)
@@ -46,11 +62,14 @@ def load_core(
     if not core:
         raise ValueError(f"Physical layer {layer} does not recur")
     layers = len(core) // condition.passes
-    values = np.empty((len(items), condition.passes, layers, POSITIONS, HIDDEN), dtype=np.float16)
+    shape = (len(items), condition.passes, layers, POSITIONS, HIDDEN)
+    values = np.empty(shape, dtype=np.float16) if out is None else out
+    if values.shape != shape or values.dtype != np.float16:
+        raise ValueError(f"Expected capture destination of shape {shape} and dtype float16")
 
     runtime = json.loads((folder / f"{items[0].identifier}.json").read_text())["runtime"]
     for index, item in enumerate(items):
-        if not complete(folder, item, runtime):
+        if not complete(folder, item, runtime, capture_layer=capture_layer):
             raise ValueError(f"Missing activation for {item.identifier} in {folder}")
         with np.load(folder / f"{item.identifier}.npz") as saved:
             values[index] = saved["active_block"][core].reshape(
@@ -69,12 +88,32 @@ def run(
     *,
     device_name: str = "cpu",
     classifiers_only: bool = False,
+    extra_items: tuple[Item, ...] = (),
+    extra_root: Path | None = None,
+    extra_sha256: str | None = None,
 ) -> None:
     directory = output / backend / condition.name
     directory.mkdir(parents=True, exist_ok=True)
-    values = load_core(root, backend, condition, items)
     held_out = validation_ids(items)
+    if extra_items:
+        if extra_root is None or extra_sha256 is None:
+            raise ValueError("Extended probes require a capture root and cohort digest")
+        if len({item.identifier for item in [*items, *extra_items]}) != len(items) + len(
+            extra_items
+        ):
+            raise ValueError("Expanded sample overlaps the base prompt IDs")
+        if len({item.text for item in [*items, *extra_items]}) != len(items) + len(extra_items):
+            raise ValueError("Expanded sample has duplicate prompts")
+        shape = (len(items) + len(extra_items), condition.passes, 12, POSITIONS, HIDDEN)
+        values = np.empty(shape, dtype=np.float16)
+        load_core(root, backend, condition, items, out=values[: len(items)])
+        load_core(extra_root, backend, condition, list(extra_items), out=values[len(items) :])
+        items = [*items, *extra_items]
+    else:
+        values = load_core(root, backend, condition, items)
     validation = np.array([item.identifier in held_out for item in items])
+    training_count = int(np.count_nonzero(~validation))
+    checkpoint_suffix = f"-prompts-{training_count}" if extra_items else ""
     scores = []
     for offset in range(12):
         layer = offset + 6
@@ -85,8 +124,13 @@ def run(
             width=BASE_WIDTH,
             batch_size=256,
             device_name=device_name,
-            checkpoint=heads / f"{backend}-{condition.name}-{layer:02d}-width-{BASE_WIDTH}.pt",
-            lineage={"validation_ids": sorted(held_out)},
+            checkpoint=heads
+            / f"{backend}-{condition.name}-{layer:02d}-width-{BASE_WIDTH}{checkpoint_suffix}.pt",
+            lineage={
+                "validation_ids": sorted(held_out),
+                "train_prompts": training_count,
+                "extra_cohort_sha256": extra_sha256,
+            },
         )
         scores.append(score)
         print(f"{backend}/{condition.name} layer {layer}: {score['accuracy']:.3%}", flush=True)
@@ -97,7 +141,8 @@ def run(
             "hidden_units": BASE_WIDTH,
             "parameters_per_classifier": parameter_count(BASE_WIDTH, condition.passes),
             "epochs": EPOCHS,
-            "train_prompts": int(np.count_nonzero(~validation)),
+            "train_prompts": training_count,
+            "extra_cohort_sha256": extra_sha256,
             "validation_prompts": int(np.count_nonzero(validation)),
             "positions": POSITIONS,
             "layers": scores,
@@ -191,6 +236,8 @@ def main() -> None:
     parser.add_argument("--artifacts", type=Path, default=Path("artifacts"))
     parser.add_argument("--output", type=Path, default=Path("site/loop-study/v1"))
     parser.add_argument("--heads", type=Path, default=Path("artifacts/loop-heads"))
+    parser.add_argument("--extra-cohort", type=Path)
+    parser.add_argument("--extra-artifacts", type=Path)
     runs = {
         f"{backend}/{condition.name}": (backend, condition)
         for backend, condition in (*RUNS, (LOCAL, Condition("variable", 3)))
@@ -200,6 +247,19 @@ def main() -> None:
     parser.add_argument("--device", default="cpu")
     args = parser.parse_args()
     items = load_items(args.cohort)
+    extra_items = ()
+    extra_sha256 = None
+    if args.extra_cohort is not None:
+        raw = args.extra_cohort.read_bytes()
+        extra_items = tuple(Item(**row) for row in json.loads(raw))
+        extra_sha256 = hashlib.sha256(raw).hexdigest()
+        if (
+            args.extra_artifacts is None
+            or len(extra_items) + len(items) - len(validation_ids(items)) != 2_880
+        ):
+            parser.error(
+                "An expanded baseline requires --extra-artifacts and exactly 2,880 training prompts"
+            )
     args.output.mkdir(parents=True, exist_ok=True)
     selected = [runs[name] for name in args.run] if args.run else RUNS
     for backend, condition in selected:
@@ -212,6 +272,9 @@ def main() -> None:
             items,
             device_name=args.device,
             classifiers_only=args.classifiers_only,
+            extra_items=extra_items,
+            extra_root=args.extra_artifacts,
+            extra_sha256=extra_sha256,
         )
     publish_catalog(args.output)
 

@@ -84,11 +84,16 @@ def run_condition(
     threads: int,
     *,
     should_yield: Callable[[], bool] | None = None,
+    capture_layer: int | None = None,
 ) -> None:
     filename, revision = MODELS[condition.checkpoint]
     runtime = f"llama.cpp:{LLAMA_REVISION}:ggml-org:{filename}:{revision}"
     directory = result_dir(root, LOCAL, condition)
-    todo = [item for item in items if not complete(directory, item, runtime)]
+    todo = [
+        item
+        for item in items
+        if not complete(directory, item, runtime, capture_layer=capture_layer)
+    ]
     if not todo:
         return
     with load_model(lib, model_dir / filename, condition.passes, threads) as handle:
@@ -100,7 +105,12 @@ def run_condition(
             labels.append(label[0])
         choices = (c.c_int32 * len(labels))(*labels)
         layout = visits(condition)
-        order = [visit.slot for visit in layout]
+        order = [
+            visit.slot
+            for visit in layout
+            if capture_layer is None
+            or (visit.layer == capture_layer and visit.pass_number is not None)
+        ]
         array = np.empty((len(layout), POSITIONS, HIDDEN), dtype=np.float32)
         pointer = array.ctypes.data_as(c.POINTER(c.c_float))
         error = c.create_string_buffer(512)
@@ -123,6 +133,7 @@ def run_condition(
                 list(ids[:length]),
                 array[order],
                 list(logits) if score else None,
+                capture_layer=capture_layer,
             )
             print(
                 f"{condition.name} {item.source} rank={item.rank + 1} verified_visits={len(layout)}",
