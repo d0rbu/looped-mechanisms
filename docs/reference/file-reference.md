@@ -71,5 +71,6 @@
 | `looped_mechanisms/probe_study.py` | Prompt-grouped loop classifier training and five activation projections |
 | `looped_mechanisms/layer_pairs.py` | NDIF decoder inputs and outputs for the distillation study |
 | `looped_mechanisms/distill.py` | Teacher-layer-sized student training and transfer evaluation |
+| `site/plot-colors.js` | Ordered loop color scale shared by activation charts |
 | `site/` | Benchmark, activation geometry, loop classification, projection, and layer transfer dashboard |
 | `.agents/skills/` | Pinned upstream NDIF skills |

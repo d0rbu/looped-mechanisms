@@ -77,5 +77,5 @@ footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1
 .study-legend button { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); padding: 3px 7px; cursor: pointer; font: inherit; font-size: .77rem; }
 .study-legend button[aria-pressed="false"] { opacity: .5; }
 .study-legend span { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; background: var(--loop-color); }
-#study-distill-rows tr[data-training-layer="true"], #study-scores tr[data-selected="true"] { background: #edf3ee; font-weight: 650; }
+#study-distill-rows tr[data-training-layer="true"] { background: #edf3ee; font-weight: 650; }
 #study-confusion td, #study-confusion th { text-align: center; min-width: 42px; }

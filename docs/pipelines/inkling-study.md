@@ -105,8 +105,8 @@ completed conditions incrementally under `site/geometry/v1`.
 
 ## Loop classification and projections
 
-The files for the hosted fixed three-pass model and local IQ4_NL variable
-16-pass model supply the probes. A seeded split holds out 16 of 64 prompts per
+The probes use the hosted fixed and variable three-pass runs and the local
+IQ4_NL variable three- and 16-pass runs. A seeded split holds out 16 of 64 prompts per
 dataset. All tokens and visits from each held-out prompt stay in validation.
 Each recurrent layer has its own ridge classifier fitted on the raw active
 block vectors at four token positions. Its linear head has 3 or 16 outputs in
@@ -119,11 +119,15 @@ captured token on each held-out prompt at each loop visit. The random map uses
 two orthonormal seeded directions. PCA and LDA are fitted on training
 activations. LDA uses loop labels and the first 50 training PCA coordinates.
 t-SNE and UMAP embed the held-out points in those 50 PCA coordinates without
-loop labels. Colors identify loop indices for every projection.
+loop labels. The ordered color gradient runs from the earliest to the latest
+loop in the selected condition.
 
 ```sh
 OPENBLAS_NUM_THREADS=6 NUMBA_NUM_THREADS=4 uv run --locked --with scikit-learn==1.9.1 --with umap-learn==0.6.0 python -m looped_mechanisms.probe_study
 ```
+
+Use `--run ndif/variable-03` or `--run llama.cpp-iq4/variable-03` to build
+just one of the variable three-pass conditions.
 
 ## Decoder-layer distillation
 
