@@ -8,9 +8,10 @@
   const scoreRequests = new Map();
   let comparison = [];
   const distillationRuns = ["distillation-06.json", "distillation.json", "distillation-17.json"];
-  const distillationColors = ["#28659d", "#176b51", "#a7501b"];
-  let students = [];
-  let catalog, report, projection, layerPredictions;
+  const distillationColors = new Map([[6, "#28659d"], [10, "#176b51"], [17, "#a7501b"]]);
+  let students = [], timeline = [];
+  let checkpointVersion = 0;
+  let catalog, report, projection;
   let conditionVersion = 0, projectionVersion = 0;
   let plotted = [];
   let hiddenLoops = new Set();
@@ -168,35 +169,37 @@
     return {ctx, x, y, step};
   }
 
-  function drawLayerHistogram(row, labels) {
-    const canvas = get("layer-histogram");
-    const axis = predictionAxes(canvas, labels, [0, 0.25, 0.5, 0.75, 1], [0, 1], "Predicted layer",
+  function drawLoopHistogram(row, labels) {
+    const canvas = get("loop-histogram");
+    const axis = predictionAxes(canvas, labels, [0, 0.25, 0.5, 0.75, 1], [0, 1], "Predicted loop",
       (value) => `${value * 100}%`);
     if (!axis) return;
     const {ctx, x, y, step} = axis;
     const width = step * 0.67;
     for (const [index, layer] of labels.entries()) {
-      ctx.fillStyle = row.layer === layer ? "#176b51" : "#819aab";
+      ctx.fillStyle = row.loop === layer ? "#176b51" : "#819aab";
       const top = y(row.counts[index] / row.examples);
       ctx.fillRect(x(layer) - width / 2, top, width, y(0) - top);
     }
-    const distribution = labels.map((layer, i) => `layer ${layer} ${percent(row.counts[i] / row.examples)}`);
-    canvas.setAttribute("aria-label", `Predictions for true layer ${row.layer}. ${distribution.join(", ")}.`);
+    const distribution = labels.map((layer, i) => `loop ${layer} ${percent(row.counts[i] / row.examples)}`);
+    canvas.setAttribute("aria-label", `Predictions for true loop ${row.loop}. ${distribution.join(", ")}.`);
   }
 
-  function drawLayerTrend(rows, labels, selected) {
+  function drawLoopTrend(rows, labels, selected) {
     const band = rows.map((row) => Math.sqrt(row.variance));
     const low = Math.min(labels[0], ...rows.map((row, i) => row.mean - band[i]));
     const high = Math.max(labels.at(-1), ...rows.map((row, i) => row.mean + band[i]));
-    const axis = predictionAxes(get("layer-trend"), labels, [6, 9, 12, 15, 17], [low - 0.4, high + 0.4],
-      "True layer", String);
+    const step = Math.max(1, Math.ceil(labels.length / 6));
+    const ticks = labels.filter((loop) => loop % step === 0 || loop === labels.at(-1));
+    const axis = predictionAxes(get("loop-trend"), labels, ticks, [low - 0.2, high + 0.2],
+      "True loop", String);
     if (!axis) return;
     const {ctx, x, y} = axis;
     ctx.fillStyle = "#dcebe3";
     ctx.beginPath();
-    rows.forEach((row, i) => ctx.lineTo(x(row.layer), y(row.mean + band[i])));
+    rows.forEach((row, i) => ctx.lineTo(x(row.loop), y(row.mean + band[i])));
     for (let i = rows.length - 1; i >= 0; i--) {
-      ctx.lineTo(x(rows[i].layer), y(rows[i].mean - band[i]));
+      ctx.lineTo(x(rows[i].loop), y(rows[i].mean - band[i]));
     }
     ctx.closePath();
     ctx.fill();
@@ -212,25 +215,31 @@
     ctx.strokeStyle = ctx.fillStyle = "#176b51";
     ctx.lineWidth = 2;
     ctx.beginPath();
-    for (const row of rows) ctx.lineTo(x(row.layer), y(row.mean));
+    for (const row of rows) ctx.lineTo(x(row.loop), y(row.mean));
     ctx.stroke();
     for (const row of rows) {
       ctx.beginPath();
-      ctx.arc(x(row.layer), y(row.mean), row.layer === selected ? 4.5 : 2.5, 0, 2 * Math.PI);
+      ctx.arc(x(row.loop), y(row.mean), row.loop === selected ? 4.5 : 2.5, 0, 2 * Math.PI);
       ctx.fill();
     }
   }
 
-  function drawLayerPredictions() {
-    if (!layerPredictions) return;
-    const {rows, labels, accuracy, validation_prompts: prompts} = layerPredictions;
+  function drawLoopPredictions() {
+    if (!report) return;
     const layer = Number(get("layer").value);
-    const row = rows.find((entry) => entry.layer === layer);
-    if (!row) return;
-    get("layer-prediction-note").textContent = `12-output layer classifier · ${percent(accuracy)} held-out accuracy across ${prompts} prompts.`;
-    get("layer-histogram-note").textContent = `True layer ${layer} · ${row.examples.toLocaleString()} predictions · mean ${row.mean.toFixed(2)} · variance ${row.variance.toFixed(2)} layers².`;
-    drawLayerHistogram(row, labels);
-    drawLayerTrend(rows, labels, layer);
+    const stats = report.layers.find((entry) => entry.layer === layer);
+    const labels = stats.confusion.map((_, loop) => loop);
+    const rows = stats.confusion.map((counts, loop) => {
+      const examples = counts.reduce((sum, count) => sum + count, 0);
+      const mean = counts.reduce((sum, count, predicted) => sum + count * predicted, 0) / examples;
+      const variance = counts.reduce((sum, count, predicted) => sum + count * (predicted - mean) ** 2, 0) / examples;
+      return {loop, counts, examples, mean, variance};
+    });
+    const selected = Number(get("true-loop").value);
+    const row = rows[selected];
+    get("loop-histogram-note").textContent = `Layer ${layer}, true loop ${selected} · ${row.examples.toLocaleString()} predictions · mean ${row.mean.toFixed(2)} · variance ${row.variance.toFixed(2)} loops².`;
+    drawLoopHistogram(row, labels);
+    drawLoopTrend(rows, labels, selected);
   }
 
   function renderScores() {
@@ -250,7 +259,7 @@
     }));
     get("confusion").replaceChildren(head, body);
     drawAccuracy();
-    drawLayerPredictions();
+    drawLoopPredictions();
   }
 
   function renderLegend() {
@@ -344,14 +353,11 @@
     ++projectionVersion;
     try {
       const run = selectedRun();
-      const [data, predictions] = await Promise.all([
-        scoresFor(run),
-        json(`${runPath(run)}/layer-predictions.json`).catch(() => null),
-      ]);
+      const data = await scoresFor(run);
       if (version !== conditionVersion) return;
       report = data;
-      layerPredictions = predictions;
-      get("layer-predictions").hidden = !predictions;
+      options("true-loop", Array.from({length: data.head_dim}, (_, loop) => [loop, `Loop ${loop}`]));
+
       hiddenLoops = new Set();
       options("layer", report.layers.map(({layer}) => [layer, `Layer ${layer}`]));
       get("status").hidden = true;
@@ -407,33 +413,76 @@
     drawDistillationMetric("cosine", "copy_cosine");
   }
 
-  async function loadDistillation() {
+  const exposure = (data) => data.history.reduce((sum, epoch) => sum + epoch.tokens, 0);
+
+  async function showCheckpoint() {
+    const control = get("distill-checkpoint");
+    const selected = timeline[Number(control.value)];
+    if (!selected) return;
+    const version = ++checkpointVersion;
+    const results = selected.data ?? (await Promise.allSettled(selected.files.map(({file}) =>
+      json(`distillation-checkpoints/${file}`)))).flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
+    if (version !== checkpointVersion || !results.length) return;
+    students = results.map((data) => ({data, color: distillationColors.get(data.train_layer)}));
+    const {data} = students[0];
+    const labelText = selected.kind === "stream"
+      ? `FineWeb-Edu · ${selected.tokens.toLocaleString()} distinct training tokens`
+      : `Pilot · ${selected.tokens.toLocaleString()} token presentations`;
+    get("distill-checkpoint-label").textContent = labelText;
+    control.setAttribute("aria-valuetext", labelText);
+    const corpus = selected.kind === "stream"
+      ? "FineWeb-Edu training examples were seen once."
+      : `The pilot checkpoint follows ${data.history.length} epochs over the frozen prompts.`;
+    get("distill-summary").textContent = `The teacher is NDIF Inkling 2 Mini with three fixed passes. Each student has ${data.student_parameters.toLocaleString()} parameters. ${corpus} Validation uses ${data.validation_prompts} held-out prompts with prefixes up to ${data.max_prompt_tokens} tokens.`;
+    const labels = [...students.map(({data: student, color}) => [`Trained on layer ${student.train_layer}`, color]),
+      ["Copy-input baseline (dashed)", "#6c7d76"]];
+    get("distill-legend").replaceChildren(...labels.map(([name, color]) => {
+      const container = node("div");
+      const dot = node("span");
+      dot.style.setProperty("--loop-color", color);
+      dot.setAttribute("aria-hidden", "true");
+      container.append(dot, name);
+      return container;
+    }));
+    get("distill-content").hidden = false;
+    drawDistillation();
+    const complete = students.filter(({data: student}) => student.layers.length === 24).length;
     const status = get("distill-status");
-    const reports = await Promise.allSettled(distillationRuns.map(async (file, i) => ({
-      data: await json(file), color: distillationColors[i],
-    })));
-    students = reports.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
-    if (students.length) {
-      const {data} = students[0];
-      const exposures = data.history.reduce((sum, epoch) => sum + epoch.tokens, 0);
-      get("distill-summary").textContent = `The teacher is NDIF Inkling 2 Mini with three fixed passes. Each student has ${data.student_parameters.toLocaleString()} parameters and saw ${exposures.toLocaleString()} token presentations across ${data.history.length} epochs. Validation uses ${data.validation_prompts} held-out prompts, with prefixes up to ${data.max_prompt_tokens} tokens.`;
-      const labels = [...students.map(({data: student, color}) => [`Trained on layer ${student.train_layer}`, color]),
-        ["Copy-input baseline (dashed)", "#6c7d76"]];
-      get("distill-legend").replaceChildren(...labels.map(([name, color]) => {
-        const container = node("div");
-        const dot = node("span");
-        dot.style.setProperty("--loop-color", color);
-        dot.setAttribute("aria-hidden", "true");
-        container.append(dot, name);
-        return container;
-      }));
-      get("distill-content").hidden = false;
-      drawDistillation();
-    }
-    const complete = students.filter(({data}) => data.layers.length === 24).length;
     status.hidden = complete === distillationRuns.length;
-    status.textContent = `${complete}/${distillationRuns.length} students evaluated at all 24 layers.`;
-    if (!status.hidden) window.setTimeout(loadDistillation, 30_000);
+    status.textContent = `${complete}/${distillationRuns.length} students evaluated at all 24 layers for this checkpoint.`;
+  }
+
+  async function loadDistillation() {
+    const [reports, index] = await Promise.all([
+      Promise.allSettled(distillationRuns.map(json)),
+      json("distillation-checkpoints/index.json").catch(() => ({checkpoints: []})),
+    ]);
+    const control = get("distill-checkpoint");
+    const previous = timeline[Number(control.value)]?.key;
+    const followedLatest = !previous || Number(control.value) === timeline.length - 1;
+    const groups = new Map();
+    for (const entry of index.checkpoints) {
+      const key = `${entry.kind}/${entry.tokens}`;
+      if (!groups.has(key)) groups.set(key, {key, kind: entry.kind, tokens: entry.tokens, files: []});
+      groups.get(key).files.push(entry);
+    }
+    const pilot = reports.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
+    if (pilot.length) {
+      const tokens = exposure(pilot[0]);
+      const key = `pilot/${tokens}`;
+      groups.set(key, {key, kind: "pilot", tokens, data: pilot});
+    }
+    timeline = Array.from(groups.values()).sort((a, b) =>
+      Number(a.kind === "stream") - Number(b.kind === "stream") || a.tokens - b.tokens);
+    if (timeline.length) {
+      control.max = timeline.length - 1;
+      control.disabled = timeline.length < 2;
+      const preserved = timeline.findIndex((point) => point.key === previous);
+      control.value = followedLatest || preserved < 0 ? control.max : preserved;
+      await showCheckpoint();
+    }
+    const finished = index.checkpoints.filter((entry) => entry.kind === "stream" && entry.tokens === 10_000_000);
+    if (finished.length < distillationRuns.length) window.setTimeout(loadDistillation, 30_000);
   }
 
   async function start() {
@@ -469,8 +518,10 @@
   });
   window.addEventListener("resize", drawProjection);
   window.addEventListener("resize", drawAccuracy);
-  window.addEventListener("resize", drawLayerPredictions);
+  get("true-loop").addEventListener("change", drawLoopPredictions);
+  window.addEventListener("resize", drawLoopPredictions);
   window.addEventListener("resize", drawDistillation);
+  get("distill-checkpoint").addEventListener("input", showCheckpoint);
   start();
   loadDistillation();
 })();

@@ -69,9 +69,13 @@
 | `looped_mechanisms/report.py` | Public aggregate generator |
 | `looped_mechanisms/geometry.py` | Gaussianity summaries and directed cross-loop nearest-neighbor indexes |
 | `looped_mechanisms/probe_study.py` | Prompt-grouped loop classifier training and five activation projections |
-| `looped_mechanisms/layer_classifier.py` | Held-out physical-layer prediction distributions and moments |
 | `looped_mechanisms/layer_pairs.py` | NDIF decoder inputs and outputs for the distillation study |
 | `looped_mechanisms/distill.py` | Teacher-layer-sized student training and transfer evaluation |
+| `looped_mechanisms/stream_corpus.py` | Pinned tokenized corpus shards for larger distillation runs |
+| `looped_mechanisms/stream_capture.py` | Resume-safe NDIF capture for explicit token sequences |
+| `looped_mechanisms/stream_step.py` | Student and optimizer frontier updates for one teacher shard |
+| `looped_mechanisms/stream_campaign.py` | Bounded staging and evaluation milestones for the 10M-token run |
+| `looped_mechanisms/checkpoint_catalog.py` | Publish evaluated student checkpoints to the dashboard slider |
 | `site/plot-colors.js` | Ordered loop color scale shared by activation charts |
 | `site/` | Benchmark, activation geometry, loop classification, projection, and layer transfer dashboard |
 | `.agents/skills/` | Pinned upstream NDIF skills |

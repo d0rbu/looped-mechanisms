@@ -3,6 +3,7 @@
 import argparse
 import json
 import math
+from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -80,7 +81,9 @@ def read_sequence(path: Path, layer: int, captured_layers: list[int]) -> Sequenc
     index = captured_layers.index(layer)
     with np.load(path) as data:
         return Sequence(
-            data["active"][index], data[f"blocks_{BLOCK_LAYER[layer]}"], data["target"][index]
+            data["active"][index].copy(),
+            data[f"blocks_{BLOCK_LAYER[layer]}"],
+            data["target"][index].copy(),
         )
 
 
@@ -179,9 +182,14 @@ def train(
     token_budget: int,
     device: torch.device,
     rate: float,
+    *,
+    optimizer: torch.optim.Optimizer | None = None,
+    seed: int = SEED,
+    on_epoch: Callable[[list[dict[str, float | int]]], None] | None = None,
 ) -> list[dict[str, float | int]]:
-    optimizer = torch.optim.Adafactor(student.parameters(), lr=rate, foreach=False)
-    rng = np.random.default_rng(SEED)
+    if optimizer is None:
+        optimizer = torch.optim.Adafactor(student.parameters(), lr=rate, foreach=False)
+    rng = np.random.default_rng(seed)
     batches = groups(data, token_budget)
     if not batches:
         raise ValueError("Distillation requires training sequences")
@@ -204,11 +212,32 @@ def train(
         if not math.isfinite(rmse):
             raise ValueError("Student training diverged")
         history.append({"epoch": epoch, "rmse": rmse, "tokens": epoch_tokens})
+        if on_epoch is not None:
+            on_epoch(history)
         print(
             f"epoch {epoch}/{epochs}: training RMSE {rmse:.6f}, tokens {epoch_tokens:,}", flush=True
         )
     optimizer.zero_grad(set_to_none=True)
     return history
+
+
+def save_weights(
+    path: Path, student: LayerStudent, metadata: dict[str, object], *, compact: bool = False
+) -> None:
+    model = student.state_dict()
+    if compact:
+        # The linear matrices are converted to BF16 by inference autocast anyway.
+        # Keep the vector parameters in FP32.
+        model = {
+            name: value.detach().to(
+                device="cpu", dtype=torch.bfloat16 if value.ndim >= 2 else value.dtype
+            )
+            for name, value in model.items()
+        }
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_suffix(".tmp")
+    torch.save({"model": model, **metadata}, temporary)
+    temporary.replace(path)
 
 
 def main() -> None:
@@ -222,11 +251,14 @@ def main() -> None:
     parser.add_argument("--phase", choices=("both", "train", "evaluate"), default="both")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--epochs", type=int, default=8)
+    parser.add_argument("--checkpoint-epoch", type=int, action="append", default=[])
     parser.add_argument("--token-budget", type=int, default=384)
     parser.add_argument("--rate", type=float, default=0.005)
     args = parser.parse_args()
     if args.epochs < 1 or args.token_budget < 1 or args.rate <= 0:
         parser.error("epochs, token budget and learning rate must be positive")
+    if any(not 1 <= epoch < args.epochs for epoch in args.checkpoint_epoch):
+        parser.error("checkpoint epochs must be before the final epoch")
     train_layer = args.train_layer
     captured_layers = tuple(sorted(set(args.capture_layer or [train_layer])))
     if train_layer not in captured_layers:
@@ -244,6 +276,8 @@ def main() -> None:
     torch.manual_seed(SEED)
     torch.set_float32_matmul_precision("high")
     device = torch.device(args.device)
+    train_prompts = len(train_items)
+    training_corpus = "Frozen prompt cohort"
     if args.phase == "evaluate":
         checkpoint = torch.load(weights, map_location="cpu", weights_only=True, mmap=True)
         if checkpoint["width"] != STUDENT_WIDTH or checkpoint["train_layer"] != train_layer:
@@ -257,6 +291,8 @@ def main() -> None:
         student.to(device)
         history = checkpoint["history"]
         train_baseline = checkpoint["train_copy_rmse"]
+        train_prompts = checkpoint.get("train_prompts", train_prompts)
+        training_corpus = checkpoint.get("training_corpus", training_corpus)
         del checkpoint
     else:
         train_files = files_for(
@@ -274,21 +310,32 @@ def main() -> None:
         train_baseline = math.sqrt(baseline_error / (HIDDEN * sum(s.length for s in train_data)))
         print(f"Training copy RMSE {train_baseline:.6f}", flush=True)
         student.train()
-        history = train(student, train_data, args.epochs, args.token_budget, device, args.rate)
-        del train_data
-        weights.parent.mkdir(parents=True, exist_ok=True)
-        temporary = weights.with_suffix(".tmp")
-        torch.save(
-            {
-                "model": student.state_dict(),
-                "width": STUDENT_WIDTH,
-                "train_layer": train_layer,
-                "history": history,
-                "train_copy_rmse": train_baseline,
-            },
-            temporary,
+        metadata = {
+            "width": STUDENT_WIDTH,
+            "train_layer": train_layer,
+            "train_copy_rmse": train_baseline,
+        }
+
+        def save_epoch(history_so_far: list[dict[str, float | int]]) -> None:
+            epoch = len(history_so_far)
+            if epoch in args.checkpoint_epoch:
+                snapshot = weights.with_name(f"{weights.stem}-epoch-{epoch:02d}.pt")
+                save_weights(
+                    snapshot, student, {**metadata, "history": history_so_far}, compact=True
+                )
+                print(f"Saved epoch {epoch} checkpoint to {snapshot}", flush=True)
+
+        history = train(
+            student,
+            train_data,
+            args.epochs,
+            args.token_budget,
+            device,
+            args.rate,
+            on_epoch=save_epoch,
         )
-        temporary.replace(weights)
+        del train_data
+        save_weights(weights, student, {**metadata, "history": history})
         print(f"Saved student to {weights}", flush=True)
         if args.phase == "train":
             return
@@ -322,7 +369,8 @@ def main() -> None:
                 "student_parameters": student_parameters,
                 "train_layer": train_layer,
                 "max_prompt_tokens": MAX_TOKENS,
-                "train_prompts": len(train_items),
+                "train_prompts": train_prompts,
+                "training_corpus": training_corpus,
                 "validation_prompts": len(val_items),
                 "train_copy_rmse": train_baseline,
                 "history": history,

@@ -33,6 +33,7 @@ def collect(
     validation: bool,
     batch_size: int,
     train_layers: tuple[int, ...] = (TRAIN_LAYER,),
+    tokenized: dict[str, list[int]] | None = None,
 ) -> None:
     import torch  # ty: ignore[unresolved-import]
     from nnsight import CONFIG, TransformersModel, save  # ty: ignore[unresolved-import]
@@ -71,9 +72,13 @@ def collect(
     tokenizer = model.tokenizer or model.processor.tokenizer
     for offset in range(0, len(todo), batch_size):
         batch = todo[offset : offset + batch_size]
-        tokens = [
-            tokenizer.encode(item.text, add_special_tokens=False)[:MAX_TOKENS] for item in batch
-        ]
+        tokens = (
+            [tokenized[item.identifier] for item in batch]
+            if tokenized is not None
+            else [
+                tokenizer.encode(item.text, add_special_tokens=False)[:MAX_TOKENS] for item in batch
+            ]
+        )
         with model.session(remote=True):
             returned = save([])
             for token_ids in tokens:
