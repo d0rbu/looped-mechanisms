@@ -17,5 +17,5 @@ root=$(cd -- "$(dirname -- "$0")/.." && pwd)
 mkdir -p "$root/build"
 c++ -std=c++20 -O2 -Wall -Wextra -Werror -shared -fPIC \
     -I"$source_dir/include" -I"$source_dir/ggml/include" \
-    "$root/native/capture.cpp" -L"$library_dir" -llama -lggml -lggml-base \
+    "$root/native/capture.cpp" -L"$library_dir" -lllama -lggml -lggml-base \
     -Wl,-rpath,"$library_dir" -o "$root/build/libloop_capture.so"
