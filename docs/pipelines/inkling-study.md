@@ -133,6 +133,20 @@ OPENBLAS_NUM_THREADS=6 NUMBA_NUM_THREADS=4 uv run --locked --with scikit-learn==
 Use `--run ndif/variable-03` to build just the hosted variable three-pass
 condition.
 
+### Predicting the recurrent layer
+
+A separate 12-output ridge classifier for each run predicts physical layers
+6–17. It uses the same prompt split as the loop classifiers and treats each
+of the four captured token positions at each loop as a separate observation.
+The histogram shows the fraction of held-out predictions in each predicted
+layer for the selected true layer. The prediction curve shows the conditional
+prediction mean, with a band of one population standard deviation on either
+side.
+
+```sh
+OPENBLAS_NUM_THREADS=6 uv run --locked --with scikit-learn==1.9.1 python -m looped_mechanisms.layer_classifier
+```
+
 ## Decoder-layer distillation
 
 The fixed three-pass NDIF decoder is the teacher. The capture uses up to the
@@ -143,15 +157,15 @@ before the loops, and final layers receive the fixed model's final-pass
 context. The experiment compares the same frozen student at all 24 physical
 indices. It does not provide the student with the physical layer index.
 
-Training uses only layer 10 on 288 training prompts. The student has causal
-attention, a dense feed-forward block, and a residual connection to the
-incoming active block. Its 1,052,840,448 trainable parameters exceed layer
-10's 1,048,818,048 parameters, counted from the pinned Transformers model
-configuration. Validation uses every token of the 96 held-out prompt prefixes.
-The report includes raw RMSE, RMSE normalized by the RMS of the teacher
-output, cosine, and the copy-input baseline. At six-layer boundaries the
-teacher resets its active block, and transfer there can fail for a different
-reason than transfer within a block.
+Each student trains on one physical layer using the same 288 prompts. The
+study uses layers 6, 10, and 17. Each student has causal attention, a dense
+feed-forward block, and a residual connection to the incoming active block.
+Its 1,052,840,448 trainable parameters exceed each selected teacher layer’s
+parameter count. Eight epochs give 276,592 presentations of 34,574 captured
+training token positions per student. Validation uses every token of the 96
+held-out prompt prefixes. The dashboard plots RMSE and cosine similarity
+alongside the copy-input baseline. At six-layer boundaries the teacher
+resets its active block.
 
 Capture both splits with the same NDIF environment used below.
 
@@ -166,6 +180,15 @@ dependencies to train and evaluate.
 ```sh
 python -m looped_mechanisms.distill --phase train
 python -m looped_mechanisms.distill --phase evaluate
+```
+
+Additional students can share a single teacher capture. Split the capture
+into disjoint workers using `--shard` and `--shards` when needed.
+
+```sh
+uv run --env-file .env --no-project --python .venv-ndif/bin/python -- python -m looped_mechanisms.layer_pairs train --train-layer 6 --train-layer 17 --batch-size 4
+python -m looped_mechanisms.distill --train-layer 6 --capture-layer 6 --capture-layer 17
+python -m looped_mechanisms.distill --train-layer 17 --capture-layer 6 --capture-layer 17
 ```
 
 ## Run NDIF

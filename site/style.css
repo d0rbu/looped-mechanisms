@@ -71,14 +71,17 @@ footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1
 #loop-study h3 { margin: 18px 0 0; font-size: 1rem; }
 #loop-study details { margin-top: 12px; }
 #study-accuracy-plot { display: block; width: 100%; height: 235px; }
-#study-accuracy-legend { color: var(--muted); font-size: .84rem; margin: 8px 0 2px; gap: 5px 16px; }
+#study-accuracy-legend, #study-distill-legend { color: var(--muted); font-size: .84rem; margin: 8px 0 2px; gap: 5px 16px; }
 #study-plot { display: block; width: 100%; height: 380px; }
 .study-legend { display: flex; flex-wrap: wrap; gap: 5px 8px; }
 .study-legend button { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); padding: 3px 7px; cursor: pointer; font: inherit; font-size: .77rem; }
 .study-legend button[aria-pressed="false"] { opacity: .5; }
 .study-legend span { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; background: var(--loop-color); }
-#study-distill-rows tr[data-training-layer="true"] { background: #edf3ee; font-weight: 650; }
 #study-confusion td, #study-confusion th { text-align: center; min-width: 42px; }
 
 #geometry-distances td.within-loop { background: #e2ece5; font-weight: 700; }
 .geometry-checkbox { display: flex; align-items: center; gap: 5px; padding-block: 8px; }
+
+.prediction-plots { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 405px), 1fr)); gap: 20px; }
+.prediction-plots h4 { margin: 1px 0 5px; font-size: .89rem; }
+.prediction-plots canvas { display: block; width: 100%; height: 245px; }
