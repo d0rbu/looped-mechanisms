@@ -5,8 +5,10 @@ import hashlib
 import json
 import random
 import time
+from collections.abc import Iterator
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import asdict, dataclass
+from itertools import islice
 from pathlib import Path
 from typing import Any
 from urllib.error import URLError
@@ -180,8 +182,7 @@ def transform(source: Source, row: dict[str, Any]) -> tuple[str, int | None] | N
     return render(messages), None
 
 
-def freeze(source: Source, directory: Path) -> list[Item]:
-    raw = read_url(source.url)
+def sample_source(source: Source, raw: bytes) -> Iterator[Item]:
     source_hash = hashlib.sha256(raw).hexdigest()
     if source.file.endswith(".parquet"):
         from pyarrow import BufferReader
@@ -192,7 +193,6 @@ def freeze(source: Source, directory: Path) -> list[Item]:
         rows = json.loads(raw)
     order = list(range(len(rows)))
     random.Random(f"{SEED}:{source.name}").shuffle(order)
-    result = []
     seen = set()
     for row_index in order:
         try:
@@ -207,21 +207,20 @@ def freeze(source: Source, directory: Path) -> list[Item]:
         # Conservative admission bound for a 1024-token window. The runtime also checks actual tokens.
         if not 50 <= len(text.encode()) <= 2400 or text in seen:
             continue
-        seen.add(text)
-        rank = len(result)
-        result.append(
-            Item(
-                f"{SOURCES.index(source)}-{row_index:06d}",
-                source.name,
-                rank,
-                row_index,
-                text,
-                answer,
-                source_hash,
-            )
+        yield Item(
+            f"{SOURCES.index(source)}-{row_index:06d}",
+            source.name,
+            len(seen),
+            row_index,
+            text,
+            answer,
+            source_hash,
         )
-        if len(result) == ITEMS_PER_SOURCE:
-            break
+        seen.add(text)
+
+
+def freeze(source: Source, directory: Path) -> list[Item]:
+    result = list(islice(sample_source(source, read_url(source.url)), ITEMS_PER_SOURCE))
     if len(result) != ITEMS_PER_SOURCE:
         raise RuntimeError(f"{source.name}: found only {len(result)} admissible rows")
     output = directory / f"{SOURCES.index(source)}.jsonl"

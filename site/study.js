@@ -62,17 +62,26 @@
 
   const percent = (fraction) => `${(fraction * 100).toFixed(1)}%`;
   async function loadComparison() {
-    const loaded = await Promise.allSettled(catalog.runs.map(async (run, index) => ({
-      run, data: await scoresFor(run), color: accuracyColors[index % accuracyColors.length],
-    })));
+    const requests = catalog.runs.map(async (run, index) => ({
+      name: label(run), data: await scoresFor(run), color: accuracyColors[index % accuracyColors.length],
+    }));
+    const variable16 = catalog.runs.find((run) => run.backend === "llama.cpp-iq4" && run.id === "variable-16");
+    if (variable16) {
+      requests.push((async () => ({
+        name: `${label(variable16)} · expanded MLP`,
+        data: await json(`${runPath(variable16)}/expanded-scores.json`),
+        color: "#755097",
+      }))());
+    }
+    const loaded = await Promise.allSettled(requests);
     comparison = loaded.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
     if (!comparison.length) return;
-    get("accuracy-legend").replaceChildren(...comparison.map(({run, data, color}) => {
+    get("accuracy-legend").replaceChildren(...comparison.map(({name, data, color}) => {
       const labelNode = node("div");
       const dot = node("span");
       dot.style.setProperty("--loop-color", color);
       dot.setAttribute("aria-hidden", "true");
-      labelNode.append(dot, `${label(run)} (${percent(1 / data.head_dim)} chance)`);
+      labelNode.append(dot, `${name} (${percent(1 / data.head_dim)} chance)`);
       return labelNode;
     }));
     get("accuracy-comparison").hidden = false;
@@ -130,9 +139,9 @@
         ctx.fill();
       }
     }
-    const values = comparison.flatMap(({run, data}) => {
+    const values = comparison.flatMap(({name, data}) => {
       const row = data.layers.find(({layer}) => layer === selected);
-      return row ? [`${label(run)} ${percent(row.accuracy)}`] : [];
+      return row ? [`${name} ${percent(row.accuracy)}`] : [];
     });
     get("accuracy-layer").textContent = `Layer ${selected} · ${values.join(" | ")}`;
   }
