@@ -73,7 +73,8 @@ The public web root serves the static app and cohort-level aggregate JSON.
 ## Activation geometry
 
 The dashboard reports layer-by-layer Gaussianity for each recorded visit.
-Each visit pools the four saved positions from all 384 prompts. The Q–Q
+The table can show all 24 physical layers or filter to every visit at a
+single layer. Each visit pools the four saved positions from all 384 prompts. The Q–Q
 error is the mean root mean squared difference between ordered, standardized
 samples and theoretical Gaussian quantiles, across 32 seeded random
 projections. The reference is the same score averaged over 128 equally

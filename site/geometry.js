@@ -43,7 +43,15 @@
   function renderGaussianity() {
     get("reference").textContent = state.summary.qq_reference.toFixed(4);
     get("observations").textContent = state.summary.count.toLocaleString();
-    get("gaussian").replaceChildren(...state.summary.gaussianity.map((visit) => {
+    const layer = get("gaussian-layer").value;
+    const visits = state.summary.gaussianity;
+    const visible = layer === "all" ? visits : visits.filter((visit) => visit.layer === Number(layer));
+    const count = visible.length;
+    get("gaussian-count").textContent = layer === "all"
+      ? `${count} visits across layers 0–23. Scroll the table or select a layer.`
+      : `${count} ${count === 1 ? "visit" : "visits"} at layer ${layer}.`;
+    get("gaussian-table").scrollTop = 0;
+    get("gaussian").replaceChildren(...visible.map((visit) => {
       const row = node("tr");
       row.append(...[visit.layer, visit.loop ?? "—", visit.qq_rmse.toFixed(4),
         visit.median_abs_excess_kurtosis.toFixed(4)].map((value) => node("td", value)));
@@ -210,6 +218,8 @@
       ]);
       if (version !== conditionVersion) return;
       Object.assign(state, {summary, examples});
+      const layers = Array.from(new Set(summary.gaussianity.map(({layer}) => layer))).sort((a, b) => a - b);
+      options("gaussian-layer", [["all", "All layers (0–23)"], ...layers.map((layer) => [layer, layer])]);
       renderGaussianity();
       const hasNeighbors = state.condition.passes > 1;
       get("neighbor").hidden = !hasNeighbors;
@@ -247,6 +257,7 @@
   }
 
   get("condition").addEventListener("change", selectCondition);
+  get("gaussian-layer").addEventListener("change", renderGaussianity);
   get("layer").addEventListener("change", updatePair);
   get("from").addEventListener("change", () => { fillLoops(); updatePair(); });
   get("to").addEventListener("change", updatePair);

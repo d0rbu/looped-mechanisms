@@ -64,6 +64,7 @@ footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1
 .geometry-block summary, .geometry-block h3 { color: var(--ink); font-size: 1rem; font-weight: 700; margin: 0; }
 .geometry-note { color: var(--muted); font-size: .86rem; margin: 8px 0 12px; }
 .gaussian-table { max-height: 320px; }
+.gaussian-count { align-self: end; margin: 0 0 8px; }
 .gaussian-table th { position: sticky; top: 0; background: var(--surface); }
 .geometry-controls { display: flex; gap: 10px 15px; flex-wrap: wrap; align-items: end; margin: 12px 0; }
 #geometry-distances { font-variant-numeric: tabular-nums; font-size: .78rem; }
