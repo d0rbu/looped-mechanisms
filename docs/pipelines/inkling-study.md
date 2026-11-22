@@ -150,7 +150,7 @@ unique prompts to the original 288 training prompts and evaluates on the
 original 96 held-out prompts. It samples the same pinned source files and
 redistributes slots from exhausted sources across the remaining sources.
 All 16 loop visits and four positions per prompt contribute training
-examples at each physical layer.
+examples at layer 6.
 
 The expanded layer-6 head has 5,120 hidden units with GELU and 16 logits,
 giving 11,883,536 trainable parameters. The 512-unit baseline has 1,188,368.
