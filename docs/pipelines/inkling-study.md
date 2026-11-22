@@ -70,6 +70,40 @@ choice logits and answer where applicable. Only shape-checked finite tensors
 and complete visit sets enter the report. Raw vectors are retained locally.
 The public web root serves the static app and cohort-level aggregate JSON.
 
+## Activation geometry
+
+The dashboard reports layer-by-layer Gaussianity for each recorded visit.
+Each visit pools the four saved positions from all 384 prompts. The Q–Q
+error is the mean root mean squared difference between ordered, standardized
+samples and theoretical Gaussian quantiles, across 32 seeded random
+projections. The reference is the same score averaged over 128 equally
+sized simulated IID standard-Gaussian samples. It is descriptive because
+tokens in the same prompt are dependent. Median absolute excess kurtosis
+measures marginal tail departure over nonconstant hidden coordinates.
+
+For physical layers 6–17, each directed source/target loop pair has one
+nearest-neighbor search per captured source token. Candidates come from all
+captured tokens at the same physical layer in the target loop, excluding
+the entire source prompt. Distances are Euclidean divided by the square
+root of the hidden width. The displayed pair average uses the nearest
+candidate for each source token. The row mean averages over all other loops.
+The explorer shows three ranked matches from the frozen cohort, with
+hover and keyboard focus available on the four recorded source tokens.
+The display uses zero-based loop indices.
+
+Build the public summaries and neighbor indexes from local artifacts and
+the pinned tokenizer JSON shared by both checkpoints. The indexes contain
+target token indices and distances, with separate tokenized examples and
+dataset attribution. Raw activation tensors remain in the artifact directory.
+
+```sh
+OPENBLAS_NUM_THREADS=8 uv run --locked python -m looped_mechanisms.geometry --tokenizer "$tokenizer_json"
+```
+
+For CUDA acceleration, add `--with cupy-cuda12x` before `python` and
+`--cuda` after `--tokenizer "$tokenizer_json"`. The builder publishes
+completed conditions incrementally under `site/geometry/v1`.
+
 ## Run NDIF
 
 Use a separate client environment so the regular project checks can run with

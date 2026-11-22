@@ -5,14 +5,16 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f7f2">
   <title>Looped Mechanisms · Inkling 2 Mini</title>
-  <link rel="stylesheet" href="style.css?v=2">
+  <link rel="stylesheet" href="style.css?v=3">
   <script defer src="app.js?v=2"></script>
+  <script defer src="geometry.js?v=1"></script>
 </head>
 <body>
   <header class="topbar">
     <a href="./" class="wordmark"><span aria-hidden="true">↻</span> Looped Mechanisms</a>
     <nav aria-label="Site navigation">
       <a href="#benchmarks">Benchmarks</a>
+      <a href="#geometry">Activation geometry</a>
       <a href="https://github.com/d0rbu/looped-mechanisms">Source ↗</a>
     </nav>
   </header>
@@ -63,6 +65,39 @@
           <summary>Benchmark values and sample counts</summary>
           <div class="table-wrap"><table><thead><tr><th>Checkpoint</th><th>Passes</th><th>Accuracy</th><th>Correct / scored</th></tr></thead><tbody id="scores"></tbody></table></div>
         </details>
+      </div>
+    </section>
+    <section class="panel" id="geometry">
+      <div class="panel-header">
+        <h2>Activation geometry</h2>
+        <div class="field"><label for="geometry-condition">Checkpoint and runtime</label><select id="geometry-condition" disabled></select></div>
+      </div>
+      <p class="empty" id="geometry-status" role="status">Loading activation statistics…</p>
+      <div id="geometry-content" hidden>
+        <details class="geometry-block" open>
+          <summary>Gaussianity by layer and loop</summary>
+          <p class="geometry-note">Q–Q error measures departure from a standard Gaussian across 32 standardized random projections. Median absolute excess kurtosis measures departure from Gaussian tail weight across hidden coordinates. Lower values are closer to Gaussian. Each row pools <strong id="geometry-observations"></strong> captured token activations. The simulated Gaussian Q–Q reference is <strong id="geometry-reference"></strong>.</p>
+          <div class="table-wrap gaussian-table"><table><thead><tr><th>Layer</th><th>Loop index</th><th>Q–Q error</th><th>Median |excess kurtosis|</th></tr></thead><tbody id="geometry-gaussian"></tbody></table></div>
+        </details>
+        <div class="geometry-block" id="geometry-neighbor">
+          <h3>Cross-loop nearest neighbors</h3>
+          <p class="geometry-note">Each cell averages the closest target distance across captured source tokens. Distance is Euclidean divided by √2,304. Candidates from the same prompt are excluded. Loops use zero-based indices.</p>
+          <div class="geometry-controls">
+            <div class="field"><label for="geometry-layer">Layer</label><select id="geometry-layer"></select></div>
+            <div class="field"><label for="geometry-from">Source loop</label><select id="geometry-from"></select></div>
+            <div class="field"><label for="geometry-to">Target loop</label><select id="geometry-to"></select></div>
+          </div>
+          <div class="table-wrap"><table id="geometry-distances" aria-label="Average nearest-neighbor distances by source and target loop"></table></div>
+          <div class="geometry-controls example-controls">
+            <div class="field"><label for="geometry-dataset">Source dataset</label><select id="geometry-dataset"></select></div>
+            <div class="field"><label for="geometry-example">Example sequence</label><select id="geometry-example"></select></div>
+          </div>
+          <p class="geometry-note">Hover over or focus a highlighted token to find its closest target tokens. The archive contains four token positions per sequence.</p>
+          <div class="token-sequence" id="geometry-sequence" aria-label="Source example sequence"></div>
+          <p class="geometry-note" id="geometry-match-status" role="status"></p>
+          <ol class="geometry-matches" id="geometry-matches"></ol>
+        </div>
+        <p class="geometry-note" id="geometry-single" hidden>Cross-loop distances require a checkpoint run with at least two loops.</p>
       </div>
     </section>
   </main>
