@@ -1,0 +1,12 @@
+diff --git a/src/llama-context.cpp b/src/llama-context.cpp
+index 7490cf3..16de206 100644
+--- a/src/llama-context.cpp
++++ b/src/llama-context.cpp
+@@ -2899,2 +2899,7 @@ uint32_t llama_context::graph_max_nodes() const {
+     uint32_t res = std::max<uint32_t>(1024u, model.graph_nodes_per_tensor()*model.n_tensors());
++    // Inkling reuses weights across passes, but each visit builds its own graph nodes.
++    if (model.arch == LLM_ARCH_INKLING2_LOOP) {
++        res = std::max(res, 512u * model.hparams.n_layer_all);
++    }
++
+     for (const auto & lora : model.loras) {

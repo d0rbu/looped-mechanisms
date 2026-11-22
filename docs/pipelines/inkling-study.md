@@ -87,10 +87,12 @@ uv run --env-file .env --no-project --python .venv-ndif/bin/python -- python -m 
 
 Build llama.cpp at commit
 [`225a5345`](https://github.com/ggml-org/llama.cpp/commit/225a5345bbb0e0c70859af5441ba922beb666fcf)
-with shared libraries and CUDA for the local GPU. Link the activation reader
-against that build.
+with shared libraries and CUDA for the local GPU. Apply the graph capacity
+patch before building. Inkling shares weights across passes, but each visit
+requires its own graph nodes. Link the activation reader against that build.
 
 ```sh
+git -C "$llama_source" apply "$PWD/native/llama-inkling-graph-capacity.patch"
 cmake -S "$llama_source" -B "$llama_source/build" -DGGML_CUDA=ON -DBUILD_SHARED_LIBS=ON
 cmake --build "$llama_source/build" --target llama
 native/build.sh "$llama_source" "$llama_source/build/bin"
