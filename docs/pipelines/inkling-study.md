@@ -162,6 +162,8 @@ giving 11,883,536 trainable parameters. The 512-unit baseline has 1,188,368.
 Both models use feature means and scales computed from training prompts and
 fit for 20 epochs with AdamW and a cosine learning-rate schedule. The
 dashboard adds the expanded layer-6 accuracy after its held-out evaluation.
+Select the 10× layer-6 MLP in the checkpoint and runtime menu to inspect its
+confusion matrix and loop prediction plots.
 
 ```sh
 uv run --locked python -m looped_mechanisms.large_loop_probe prepare

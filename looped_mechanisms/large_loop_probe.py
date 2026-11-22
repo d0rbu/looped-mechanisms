@@ -154,6 +154,7 @@ def train(
     *,
     yield_to_distillation: bool = False,
     device_name: str = "cuda",
+    report_path: Path = REPORT,
 ) -> None:
     base = load_items(BASELINE)
     held_out = validation_ids(base)
@@ -218,8 +219,9 @@ def train(
         lineage={**lineage, "train_prompts": TRAIN_PROMPTS, "validation_ids": sorted(held_out)},
     )
     reference_score = next(row for row in reference["layers"] if row["layer"] == TARGET_LAYER)
+    report_path.parent.mkdir(parents=True, exist_ok=True)
     atomic_json(
-        REPORT,
+        report_path,
         {
             "head_dim": loops,
             "train_prompts": TRAIN_PROMPTS,
@@ -252,6 +254,7 @@ def main() -> None:
     parser.add_argument("--passes", type=int, choices=range(2, 17), default=16)
     parser.add_argument("--checkpoint", choices=("fixed", "variable"), default="variable")
     parser.add_argument("--capture-root", type=Path)
+    parser.add_argument("--report", type=Path, default=REPORT)
     parser.add_argument("--compact", action="store_true")
     parser.add_argument("--yield-to-distillation", action="store_true")
     args = parser.parse_args()
@@ -269,7 +272,11 @@ def main() -> None:
         return
     if args.action == "train":
         train(
-            args.cohort, examples, args.supplement, yield_to_distillation=args.yield_to_distillation
+            args.cohort,
+            examples,
+            args.supplement,
+            yield_to_distillation=args.yield_to_distillation,
+            report_path=args.report,
         )
         return
     if args.models is None or args.offset < 0 or args.count <= 0:

@@ -38,7 +38,8 @@
   function label(run) {
     const backend = run.backend === "ndif" ? "NDIF" : "Local IQ4_NL";
     const checkpoint = run.checkpoint === "fixed" ? "Fixed" : "Variable";
-    return `${backend} · ${checkpoint} · ${run.passes} passes`;
+    const condition = `${backend} · ${checkpoint} · ${run.passes} passes`;
+    return run.variant ? `${condition} · ${run.variant}` : condition;
   }
 
   function runPath(run) {
@@ -49,10 +50,14 @@
     return catalog.runs[Number(get("condition").value)];
   }
 
+  function scorePath(run) {
+    return `${runPath(run)}/${run.scores ?? "scores.json"}`;
+  }
+
   function scoresFor(run) {
-    const path = runPath(run);
+    const path = scorePath(run);
     if (!scoreRequests.has(path)) {
-      scoreRequests.set(path, json(`${path}/scores.json`).catch((error) => {
+      scoreRequests.set(path, json(path).catch((error) => {
         scoreRequests.delete(path);
         throw error;
       }));
@@ -63,7 +68,7 @@
   const percent = (fraction) => `${(fraction * 100).toFixed(1)}%`;
   async function loadComparison() {
     const requests = catalog.runs.map(async (run, index) => ({
-      path: runPath(run),
+      path: scorePath(run),
       reference: index < accuracyColors.length,
       name: label(run),
       data: await scoresFor(run),
@@ -71,12 +76,22 @@
     }));
     const variable16 = catalog.runs.find((run) => run.backend === "llama.cpp-iq4" && run.id === "variable-16");
     if (variable16) {
-      requests.push((async () => ({
-        name: `${label(variable16)} · expanded layer-6 MLP`,
-        reference: true,
-        data: await json(`${runPath(variable16)}/expanded-scores.json`),
-        color: "#755097",
-      }))());
+      const expanded = {
+        ...variable16,
+        scores: "expanded-scores.json",
+        variant: "10× layer-6 MLP",
+        projections: false,
+      };
+      requests.push((async () => {
+        const data = await scoresFor(expanded);
+        if (data.train_prompts !== 28_800 || data.hidden_units !== 5_120
+            || data.layers.length !== 1 || data.layers[0].layer !== 6) {
+          throw new Error("Expanded layer-6 evaluation is incomplete");
+        }
+        catalog.runs.push(expanded);
+        options("condition", catalog.runs.map((run, index) => [index, label(run)]));
+        return {path: scorePath(expanded), reference: true, name: label(expanded), data, color: "#755097"};
+      })());
     }
     const loaded = await Promise.allSettled(requests);
     comparison = loaded.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
@@ -87,7 +102,7 @@
   }
 
   function visibleComparison() {
-    const path = runPath(selectedRun());
+    const path = scorePath(selectedRun());
     return comparison.filter((entry) => entry.reference || entry.path === path);
   }
 
