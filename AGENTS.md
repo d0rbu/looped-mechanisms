@@ -1,7 +1,7 @@
-# AGENTS.md - research-project-template
+# AGENTS.md - looped-mechanisms
 
-You are working in a correctness-first Python research template. Keep changes small,
-explicit, typed, and easy to review. The repository currently has tooling and executable
+This repository studies activation and benchmark behavior across the looped
+Inkling 2 Mini checkpoints.
 examples, with no research implementation or installable source package.
 
 This file is the AI-agent entry point. It should point to docs that contain durable
@@ -112,3 +112,9 @@ copying a template or editing the JSON does not configure GitHub automatically. 
 For new untracked files, also run the relevant hooks with `--files <paths>`; `--all-files`
 only enumerates tracked files for file-based hooks. If a check cannot run, state the
 exact reason and what remains unverified.
+
+## Model internals
+
+Read the [study protocol](docs/pipelines/inkling-study.md) and the
+[NNsight skill](.agents/skills/nnsight/SKILL.md) before changing trace code.
+The other upstream NDIF skills are also available under `.agents/skills/`.

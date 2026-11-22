@@ -40,3 +40,8 @@ Thumbs.db
 .idea/
 *.swp
 *.swo
+
+# Public aggregates are generated from local activation artifacts.
+/site/results.json
+/site/results.json.tmp
+.venv-ndif/

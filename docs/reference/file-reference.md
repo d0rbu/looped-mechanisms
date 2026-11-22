@@ -54,3 +54,18 @@
 | `.github/workflows/ci.yml` | Runs the shared pre-commit gate on main pushes, pull requests, and manual dispatch |
 | `.github/dependabot.yml` | Weekly grouped uv and GitHub Actions dependency update proposals |
 | `.github/rulesets/default-branch.json` | Portable PR and required-CI policy, applied separately to each GitHub repository |
+
+## Inkling study
+
+| File or directory | Purpose |
+| --- | --- |
+| `docs/pipelines/inkling-study.md` | Study design, runner setup, and activation schema |
+| `looped_mechanisms/design.py` | Checkpoint conditions and visit order |
+| `looped_mechanisms/inputs.py` | Pinned inputs and cohort preparation |
+| `looped_mechanisms/ndif_run.py` | Hosted three-pass trace and benchmark runner |
+| `looped_mechanisms/local_run.py` | Local IQ4_NL sweep orchestration |
+| `native/` | llama.cpp graph observation bridge and build command |
+| `looped_mechanisms/results.py` | Raw activation validation and result persistence |
+| `looped_mechanisms/report.py` | Public aggregate generator |
+| `site/` | Static dashboard and generated aggregate data |
+| `.agents/skills/` | Pinned upstream NDIF skills |

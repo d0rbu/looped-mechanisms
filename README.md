@@ -1,84 +1,32 @@
-# Research Project Template
+# Looped Mechanisms
 
-Correctness-first Python boilerplate for research projects.
+Layer- and pass-resolved activation capture and benchmark evaluation for the two
+looped Thinking Machines Lab checkpoints, Inkling 2 Mini and
+TML-d24-varloop-research. Both checkpoints use 24 physical transformer layers.
+Layers 6–17 recur, so a forward with *p* passes visits 12 + 12*p* layers.
 
-The repository currently contains development tooling, executable correctness examples,
-and documentation. Add a source package when there is real research code to organize.
-Python 3.13 and a committed `uv.lock` keep the development environment reproducible.
+[Live dashboard](https://san-standards-ethnic-boutique.trycloudflare.com/) ·
+[Study protocol](docs/pipelines/inkling-study.md) ·
+[Development guide](docs/README.md)
 
-## 1-minute quickstart
+## Reproduce
 
-```bash
-git clone https://github.com/d0rbu/research-project-template.git
-cd research-project-template
+```sh
 uv sync --locked
-uv run --locked pre-commit install
-uv run --locked just check
+uv run --locked python -m looped_mechanisms.inputs
+uv run --locked python -m looped_mechanisms.report
+python -m http.server 45717 --bind 127.0.0.1 --directory site
 ```
 
-Install [uv](https://docs.astral.sh/uv/getting-started/installation/) first if needed;
-it can install the Python version in `.python-version`. `just` is included in the
-development dependencies, so a separate installation is optional.
+Follow the [study protocol](docs/pipelines/inkling-study.md) to configure NDIF
+and build the local runner. The dashboard reads generated aggregate statistics
+from `site/results.json`. Raw vectors and item scores are stored under
+`artifacts/`, with input lineage under `data/cohort/`.
 
-## What this includes
+The repository includes project-local copies of the four
+[NDIF skills](https://github.com/ndif-team/skills), pinned to upstream commit
+[`fb71ca6`](https://github.com/ndif-team/skills/commit/fb71ca667ec91e37a58e677e8010a54e33ccd9d4).
+They are discoverable in `.agents/skills/` when an agent starts in the project.
+See the [upstream license](.agents/skills/NDIF-LICENSE).
 
-| Area | Tooling |
-|---|---|
-| Package management | `uv`, `pyproject.toml`, `uv.lock` |
-| Local commit checks | `pre-commit`, including file hygiene and lockfile validation |
-| Linting and formatting | `ruff` |
-| Type checking | `ty` |
-| Tests | `pytest`, `pytest-cov`, `hypothesis`; 95% minimum coverage with branches |
-| Dead code | `vulture` |
-| Runtime contracts | `phantom-types`, `beartype` |
-| Array shape/dtype checks | `jaxtyping` |
-| Agent guidance | `AGENTS.md`, `CLAUDE.md` |
-| Common commands | `justfile`, available through `uv run --locked just` |
-| Automation | GitHub Actions runs the same gate; Dependabot proposes dependency updates |
-| Workflow and docs checks | `actionlint` and an offline Markdown file-link checker |
-| Merge policy | Pull requests and passing CI; reusable ruleset under `.github/rulesets/` |
-
-Coverage currently measures maintenance commands in `scripts/` and executable examples
-in `tests/`. Add the research source package when one exists; the current percentage
-does not measure research code yet.
-
-## Daily commands
-
-```bash
-uv run --locked just                          # list recipes
-uv run --locked just fmt                      # fix lint and formatting
-uv run --locked just test                     # tests and coverage
-uv run --locked just test --no-cov -k weighted_mean  # focused tests
-uv run --locked just check                    # full gate, also used by CI
-```
-
-The full gate checks the lockfile, Ruff lint and formatting, types, dead code, tests,
-coverage, workflow semantics, local Markdown targets, JSON/YAML/TOML syntax, merge-conflict
-markers, large added files, and whitespace. See [configuration](docs/reference/configuration.md)
-for the local link check's scope and applying the merge ruleset to a new repository.
-
-## Repo layout
-
-```
-tests/              pytest suite, including property tests
-scripts/            tested repository maintenance commands
-docs/               project documentation
-.github/workflows/  CI checks
-```
-
-## Where to go next
-
-| You want to... | Read |
-|---|---|
-| Navigate the documentation | [`docs/README.md`](docs/README.md) |
-| Work as an agent | [`AGENTS.md`](AGENTS.md) |
-| Start developing | [`docs/onboarding/getting-started.md`](docs/onboarding/getting-started.md) |
-| Understand the correctness model | [`docs/development/correctness.md`](docs/development/correctness.md) |
-| Write or debug tests | [`docs/development/testing.md`](docs/development/testing.md) |
-| Add a new experiment | [`docs/pipelines/experiment-lifecycle.md`](docs/pipelines/experiment-lifecycle.md) |
-| See tool configuration | [`docs/reference/configuration.md`](docs/reference/configuration.md) |
-| Find a file's purpose | [`docs/reference/file-reference.md`](docs/reference/file-reference.md) |
-
-## License
-
-MIT. See [`LICENSE`](LICENSE).
+MIT license for project code. See [LICENSE](LICENSE).

@@ -1,7 +1,7 @@
 [project]
-name = "research-project-template"
+name = "looped-mechanisms"
 version = "0.1.0"
-description = "Correctness-first Python boilerplate for research projects."
+description = "Layer- and loop-resolved activation studies on Inkling 2 Mini."
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
 license = "MIT"
@@ -11,6 +11,7 @@ dependencies = [
     "jaxtyping>=0.3.0",
     "numpy>=2.0.0",
     "phantom-types[hypothesis]>=3.0.0",
+    "pyarrow>=26.0.1",
 ]
 
 [tool.uv]
@@ -67,7 +68,7 @@ exclude_also = ["if TYPE_CHECKING:"]
 python-version = "3.13"
 
 [tool.ty.src]
-exclude = [".venv/", "docs/", "dist/", "build/"]
+exclude = [".venv/", "docs/", "dist/", "build/", ".agents/"]
 
 [tool.ty.rules]
 all = "error"
@@ -75,7 +76,7 @@ all = "error"
 [tool.ruff]
 line-length = 100
 target-version = "py313"
-extend-exclude = [".venv", "dist", "build", "out", "outputs", "logs"]
+extend-exclude = [".venv", "dist", "build", "out", "outputs", "logs", ".agents"]
 
 [tool.ruff.lint]
 select = [
@@ -100,10 +101,12 @@ ignore = [
 known-first-party = ["scripts", "tests"]
 
 [tool.vulture]
+# ctypes reads these descriptors when marshalling foreign calls.
+ignore_names = ["argtypes", "restype"]
 paths = ["."]
 min_confidence = 60
 sort_by_size = true
 exclude = [
-    ".venv/", ".git/", ".cache/", ".codex/worktrees/", "build/", "dist/", "data/", "artifacts/",
+    ".agents/", ".venv/", ".git/", ".cache/", ".codex/worktrees/", "build/", ".agents/", "dist/", "data/", "artifacts/",
     "checkpoints/", "out/", "outputs/", "logs/", "runs/", "wandb/",
 ]

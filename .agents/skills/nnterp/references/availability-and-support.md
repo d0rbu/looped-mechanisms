@@ -1,0 +1,355 @@
+# Availability and forward order: `support()`, `Unavailable`, `SourceNotAvailable`, `order()`, `rank()`
+
+Not every checkpoint has every standard value. OPT has no MLP module; a model
+loaded with `sdpa` never builds the attention pattern; GPT-2 with
+`reorder_and_upcast_attn` leaves the shared attention interface; a hybrid's linear
+blocks have no softmax and their per-token state needs a kernel switch; a dense
+block beside mixture blocks has no routing. Every nnterp value can say
+when it is not there and why, and `support()` collects those reasons from the
+config alone, so a script decides what to read before anything runs.
+
+`None` means available. Anything else is the reason, a string.
+
+A script that reads or edits several values has a second question: which order to put
+them in. `model.order()` and `model.rank()` answer it for the values `support()` lists as
+available ([below](#forward-order-order-and-rank)).
+
+```python
+import torch
+import nnsight
+import nnterp
+from nnterp import StandardizedTransformer, Unavailable
+
+plain = StandardizedTransformer("openai-community/gpt2", device="cpu")   # no dispatch: meta, no weights yet; transformers' default attention
+prompt = "The Eiffel Tower is in the city of"
+```
+
+## The three forms
+
+`model.support()` is the root's values plus every block value, by dotted name. A
+block value is `None` when every block has it, else `{layer: reason}` for the
+blocks that do not. `model.support(layer=i)` is one block, flat. `envoy.support()`
+is one envoy's own values. Block values are walked off the tree: every block child
+that carries standard values is listed under its standard name, so a value installed
+through `envoys=` appears as `self_attn.<name>`, and a module no block has (OPT's
+`mlp`) has no key at all; `.get` a key on a family you do not know. All three read
+the config, so they work on a meta model:
+
+```python
+EAGER = "read inside the eager attention forward, but this model runs 'sdpa'; load with attn_implementation='eager'"
+
+assert plain.config._attn_implementation == "sdpa"
+support = plain.support()
+assert support["layer_output"] is None and support["self_attn.attention_output"] is None and support["mlp.mlp_output"] is None
+assert support["self_attn.attention_probabilities"] == {i: EAGER for i in range(12)}
+assert set(support) == {
+    "logits", "token_embeddings", "next_token_probs", "input_ids", "attention_mask", "input_size",
+    "final_norm_output", "lm_head_output",
+    "layer_input", "attention_norm_output", "layer_mid", "mlp_norm_output", "mlp_input", "layer_output",
+    "self_attn.attention_output", "self_attn.attention_probabilities",
+    "self_attn.attention_queries", "self_attn.attention_keys", "self_attn.attention_values",
+    "self_attn.attention_scores", "self_attn.attention_head_outputs", "self_attn.attention_premix",
+    "self_attn.attention_queries_prerope", "self_attn.attention_keys_prerope", "self_attn.interface",
+    "mlp.mlp_activation", "mlp.mlp_neurons", "mlp.mlp_output",
+}
+assert plain.support(layer=0)["self_attn.attention_probabilities"] == EAGER          # one block, flat
+assert plain.layers[0].self_attn.support()["attention_probabilities"] == EAGER       # one envoy
+assert plain.layers[0].self_attn.support()["attention_output"] is None
+```
+
+Loaded with `attn_implementation="eager"`, every `self_attn.*` entry is `None`
+on Llama, and on GPT-2 every one but the queries and keys before the rotary
+embedding, which a model without a rotary does not have. The root values (`logits`,
+`token_embeddings`, `final_norm_output`, `lm_head_output`, `next_token_probs`,
+`input_ids`, `attention_mask`, `input_size`), the block's boundary values, the
+sublayers' interiors at module boundaries (`attention_premix`, `mlp_activation`,
+`mlp_neurons`) and the queries and keys before the rotary never depend on the
+implementation.
+
+A hybrid (`Qwen/Qwen3.5-9B` with `attn_implementation="eager"`) reads as a dict
+per value, because each block has `self_attn` or `linear_attn` and the per-token
+state needs routing (verified on the tiny Qwen3.5 checkpoint):
+
+```python
+hybrid = StandardizedTransformer("Qwen/Qwen3.5-9B", attn_implementation="eager")
+support = hybrid.support()
+# support["self_attn.attention_output"]   -> {0: 'no self_attn module on this block', 1: ..., 2: ..., ...}   the DeltaNet blocks
+# support["linear_attn.decays"]           -> {3: 'no linear_attn module on this block', 7: ..., ...}          the attention blocks
+# support["linear_attn.state"]            -> {0: "the state after each token is materialized only by the token-by-token kernel; ...", ..., 3: 'no linear_attn module on this block', ...}
+# support["mlp.mlp_output"]               -> None
+```
+
+A pure state-space model (Mamba-130m) repeats one reason per block, hundreds of
+lines; read `support(layer=i)` there.
+
+`self_attn.value_weight` and `output_weight` are methods, with no row in any of the three
+forms: call them. On a model without weights they raise `Unavailable` with "... on the meta
+device: the model is not dispatched" wherever a loaded model would serve them; any other
+reason (latent attention's on DeepSeek-V3) is the real answer.
+
+## Reading an unavailable value
+
+Reading or writing one raises `nnterp.Unavailable` (a `RuntimeError`) with the
+same reason, at that line, before the forward runs:
+
+```python
+with plain.trace(prompt):
+    pattern = plain.layers[0].self_attn.attention_probabilities.save()
+    # Unavailable: model.transformer.h.0.attn.attention_probabilities is not available:
+    #   read inside the eager attention forward, but this model runs 'sdpa'; load with attn_implementation='eager'
+```
+
+The trace above dispatched the weights (`trace` loads a meta model) and then
+raised; the model is usable afterwards, and the boundary values work under
+`sdpa`:
+
+```python
+assert plain.dispatched
+
+with plain.trace(prompt):
+    attn = plain.layers[0].self_attn.attention_output.save()
+    out = plain.layers[0].layer_output.save()
+    logits = plain.logits.save()
+
+assert attn.shape == out.shape == (1, 10, 768)
+assert plain.tokenizer.decode(logits[0, -1].argmax()) == " Paris"
+```
+
+A module that does not exist on a block is an ordinary missing attribute:
+`model.layers[0].mlp` on OPT raises `AttributeError`, and
+`getattr(layer, "mlp", None)` is `None`. Use that form outside the trace to pick
+blocks.
+
+## `hasattr` raises
+
+Python's `hasattr` treats only `AttributeError` as absence. An unavailable value
+raises `Unavailable` through it; an *available* value read outside a trace raises
+`ValueError` (`Cannot access ... outside of interleaving`), or, for one read inside
+the attention call's own source (`attention_probabilities`, `attention_scores`),
+`SourceNotAvailable` (`recursive .source is only available inside a trace`).
+Never `False`:
+
+```python
+hasattr(plain.layers[0].self_attn, "attention_probabilities")
+```
+
+```python
+from nnsight.intervention.source import SourceNotAvailable
+
+eager = StandardizedTransformer("openai-community/gpt2", device="cpu", attn_implementation="eager")   # meta, eager
+
+outcomes = {}
+for name in ("attention_queries", "attention_probabilities"):
+    try:
+        outcomes[name] = hasattr(eager.layers[0].self_attn, name)
+    except (ValueError, SourceNotAvailable) as error:
+        outcomes[name] = type(error).__name__
+
+assert outcomes == {"attention_queries": "ValueError", "attention_probabilities": "SourceNotAvailable"}
+assert eager.support(layer=0)["self_attn.attention_probabilities"] is None               # the question hasattr cannot answer
+```
+
+## The reasons you will see
+
+| reason (exact string, or its prefix) | value(s) | when |
+|---|---|---|
+| `read inside the eager attention forward, but this model runs 'sdpa'; load with attn_implementation='eager'` | the attention interior on every interface family (and GPT-J, Falcon) | loaded with any `attn_implementation` other than `"eager"`; the quoted name is whatever the model runs |
+| `this checkpoint sets reorder_and_upcast_attn, which takes GPT-2's own upcast attention path` | the GPT-2 interior | `config.reorder_and_upcast_attn` is set |
+| `The attention does its own arithmetic rather than transformers' shared attention interface; not mapped for this family yet` | an interior value a family has not mapped | a family off the shared interface that marks it `unavailable(NOT_ON_INTERFACE)`; the default family reports it for an attention whose forward makes no interface call |
+| `no self_attn module on this block` / `no linear_attn module on this block` | every value of that module | another block has the module and this one does not (a hybrid's blocks). A module no block has (OPT's `mlp`) has no key in `support()` at all |
+| `no rotary embedding: ...` / `no rotary embedding on this block: ...` | `self_attn.attention_queries_prerope`, `self_attn.attention_keys_prerope` (and `self_attn.rotate` raises it) | the family has no rotary embedding (absolute or sinusoidal positions, ALiBi, none in the attention: GPT-2, OPT, BLOOM, ...), or this block skips it (a NoPE block: Cohere 2, SmolLM3, Llama 4, ...) ([attention-interior.md](attention-interior.md#before-the-rotary-embedding-attention_queries_prerope-attention_keys_prerope-rotate)) |
+| `a KV-sharing block: its keys are an earlier block's, rotated there; ...` | `self_attn.attention_keys_prerope` (Gemma-4) | the block attends with an earlier block's keys and rotates none of its own |
+| `the queries, keys and values are not the arguments of one call in this forward that returns the head outputs (the attention does its own arithmetic, or changes the call's output before the projection), so there is no attention function to call again` (`nnterp.components.OWN_ARITHMETIC`) | `self_attn.interface` | BLOOM, MPT, Falcon and XGLM (their own arithmetic) and DeepSeek-V4 (the head outputs are the interface's output rotated back); elsewhere `interface` has the reason of the queries, keys, values, head outputs or pattern it works with ([attention-interior.md](attention-interior.md#calling-the-attention-function-again-interface)) |
+| `no <module> module on this block` (`input_layernorm`, `post_attention_layernorm`, `mlp`) | `attention_norm_output`, `layer_mid`, `mlp_norm_output`, `mlp_input` | the block has no module the value is keyed on (OPT's `mlp_input`) |
+| `a parallel block: the attention and the MLP read the same input, so there is no stream between them` (`nnterp.components.PARALLEL`) | `layer_mid` | GPT-J, CodeGen, Cohere, Phi, Falcon; GPT-NeoX and StableLM with `use_parallel_residual` |
+| `a post-norm block: the attention reads the residual stream itself, layer_input` / `... the MLP reads the residual stream itself, layer_mid` (`POST_NORM_ATTENTION`, `POST_NORM_MLP`) | `attention_norm_output` / `mlp_norm_output` | OLMo-2/3, EXAONE-4, FlexOlmo, OLMo-Hybrid's attention blocks, OPT-350m (`do_layer_norm_before` false) |
+| `no o_proj module on this attention` / `no act_fn module on this mlp` / `no down_proj module on this mlp` | `attention_premix` / `mlp_activation` / `mlp_neurons` | the family aliases no module to the standard child name (JetMoE says why in its own words) |
+| `routed experts; read per-expert via the Moe component` | `mlp.mlp_activation`, `mlp.mlp_neurons` | a routed mixture of experts (dense blocks beside it serve them) |
+| `the state after each token is materialized only by the token-by-token kernel; the chunked kernel a prompt runs through carries it between chunks. Call nnterp.route_kernels(model.family, 'torch') before tracing this layer ...` | a DeltaNet's `linear_attn.state`, `.states` | the family is not routed |
+| `read inside transformers' pure-torch <kernel>, but this process dispatches it to an optimized kernel (<package>) with no Python source; uninstall it, or call nnterp.route_kernels(model.family, 'torch'), to read these` | every recurrent `linear_attn` value but `attention_output` | `mamba_ssm` / `flash-linear-attention` installed and the family not routed |
+| `the state after each token is read inside the kernels' pure-torch bodies, which this process reaches through transformers' kernel dispatcher. ...` | a Mamba-1 `linear_attn`'s `state`, `states` | the family not routed and no optimized kernel installed (with one, the row above) |
+| `the chunk scan materializes the state only at chunk boundaries, every <n> tokens (chunk_size=<n>); call nnterp.chunk_per_token(model) ...` | a Mamba-2 `linear_attn.states` | `chunk_per_token` not set |
+| `the chunk scan computes every token's state in one tensor per call, ...` / `the chunk scan computes every boundary state in one cumulative step ...` | a Mamba-2 `linear_attn.state` / `.set_state_after` | always |
+| `no <value> value on this block's mlp` | a mixture's six values | a dense block beside mixture blocks |
+| `read inside transformers' grouped_mm / batched_mm experts forward, but this model runs 'eager'; load with experts_implementation='grouped_mm' (the default) or 'batched_mm'` | `mlp.expert_outputs` | `experts_implementation="eager"` |
+| `this mixture has no shared expert` | `mlp.shared_expert_output` | a mixture without one |
+| `this checkpoint has no per-layer embeddings ...` | Gemma-4's `per_layer_output` | 26B-A4B, 31B |
+| `a text-only load: no processor, so no image reaches the model; load with task='image-text-to-text'` | every value of `model.vision` and its blocks | a vision-language wrapper loaded under the default `task="text-generation"` |
+| `a text-only load: no tower, so no deepstack feature reaches the text model; load with task='image-text-to-text'` | `layers[k].deepstack_output` (Qwen3-VL, Qwen3-VL-MoE) | the same load |
+| `the <family> family names no projector on this wrapper` | every tower value | the family does not name where the image enters the text model |
+| `the <family> family keys no ImageScatter on the '<model_type>' wrapper, so where its image features enter the text stream is unknown` | `vision.image_features` | the tower's names bind but the family does not say where the wrapper writes the features in |
+| `the config names no image_token_id` | `vision.image_token_mask`, `vision.image_features` | the wrapper's config has no image token id |
+| `<tower>.image_size is not available: the tower takes images of any resolution, each cut into its own patch grid by the processor; read the grid off the processor's output (image_grid_thw, image_sizes, image_position_ids)` | `vision.image_size` (a size: raised at the read, not a `support()` row) | the Qwen ViT, Pixtral, Gemma 4, Gemma 4 unified |
+| `the Qwen ViT's attention makes one interface call per image (attention_interface_2; ...` | the Qwen ViT's `attention_scores`, `attention_probabilities`, `interface` | under every `attn_implementation` |
+| `flash attention runs every image in one call over cu_seqlens, with no concatenation to read; load with attn_implementation='eager' or 'sdpa'` | the Qwen ViT's `attention_head_outputs` | a flash load |
+
+BLOOM and MPT do their attention arithmetic themselves, so their pattern and
+interior need no eager load and are `None` under any implementation; their
+`self_attn.interface` reports `OWN_ARITHMETIC` under every one.
+
+A block-structure reason is the same string on every family that has it, so compare
+against the constant (a meta load, on Pythia's parallel block):
+
+```python
+from nnterp.components import PARALLEL
+
+pythia = StandardizedTransformer("EleutherAI/pythia-70m-deduped")     # meta: only the config is read
+assert pythia.support(layer=0)["layer_mid"] == PARALLEL               # use_parallel_residual
+assert pythia.support(layer=0)["mlp_norm_output"] is None              # the MLP's own norm, over the block input
+```
+
+The reasons are evaluated on the instance, so a change after the load changes the
+answer: `route_kernels(model.family, "torch")` turns a DeltaNet's `state` and
+`states` entries to `None` on the linear blocks. Reading a mixture's
+`num_experts`, `top_k` or `SCORING` on a dense block raises a bare
+`AttributeError`, not `Unavailable`; pick the blocks with `support()` first.
+
+## The `vision.` rows
+
+A vision-language wrapper loaded with `task="image-text-to-text"` adds its tower's rows
+to `model.support()` under `vision.` (`"vision.image_features"`,
+`"vision.self_attn.attention_probabilities"`), and `model.vision.support()` lists the same
+rows without the prefix, with `support(layer=i)` for one tower block. Like the text rows,
+they come from the config, so a meta build answers:
+
+```python
+TEXT_ONLY = "a text-only load: no processor, so no image reaches the model; load with task='image-text-to-text'"
+LLAVA = "trl-internal-testing/tiny-LlavaForConditionalGeneration"
+
+vlm = StandardizedTransformer(LLAVA, task="image-text-to-text")              # meta; the processor comes with the task
+rows = {key for key in vlm.support() if key.startswith("vision.")}
+assert {"vision.image_token_mask", "vision.patch_embeddings", "vision.tower_output", "vision.image_features",
+        "vision.layer_output", "vision.self_attn.attention_output", "vision.mlp.mlp_output"} <= rows
+assert vlm.vision.support()["image_features"] is None
+assert vlm.vision.support(layer=0)["self_attn.attention_probabilities"] == EAGER    # the tower's interior needs eager too
+
+wrapper = StandardizedTransformer(LLAVA, device="cpu", dispatch=True)            # the default task: no processor
+assert wrapper.processor is None and wrapper.vision.support() == {}
+assert not any(key.startswith("vision.") for key in wrapper.support())
+raised = None
+try:
+    wrapper.vision.image_features
+except Unavailable as error:
+    raised = str(error)
+assert raised.endswith(TEXT_ONLY)                                                  # every tower value, inside a trace too
+```
+
+A text-only checkpoint has no `model.vision` attribute at all: guard on
+`getattr(model, "vision", None)` first and on `support()` second. The full vision
+contract is [vision.md](vision.md).
+
+## `SourceNotAvailable`: the forward took another path
+
+`support()` predicts from the config. A source-located value is then read at a
+named operation inside the forward, and if this run's forward does not contain
+that operation, the read raises nnsight's `SourceNotAvailable` naming the value,
+the operation and what the forward does have:
+
+```
+SourceNotAvailable: model.transformer.h.0.attn.<value> reads operation '<op>' under .source, which
+this run does not have: 'model.transformer.h.0.attn.source' has no operation '<op>'; available:
+is_cross_attention_0, ..., attention_interface_0, attention_interface_1, .... The forward took a
+path this family's toolkit does not expect.
+```
+
+`Unavailable` is the expected answer for a known configuration;
+`SourceNotAvailable` means a forward the family has not been checked against
+(another transformers release renaming an operation, a branch the config does
+not announce, a remote server on another transformers). `print(envoy.source)`
+lists the real operation names; the [extending guide](extending.md) covers relocating a
+value.
+
+## Guarding a script
+
+Check `support()` outside the trace and branch there; the trace body then reads
+only what exists:
+
+```python
+model = plain                                            # any StandardizedTransformer
+support = model.support()
+has_pattern = support["self_attn.attention_probabilities"] is None
+has_mlp = support.get("mlp.mlp_output", "absent") is None   # no key at all where no block has an mlp (OPT)
+attn_blocks = [i for i, layer in enumerate(model.layers) if getattr(layer, "self_attn", None) is not None]
+
+with model.trace(prompt):
+    patterns = nnsight.save({})
+    for i in attn_blocks[:3]:
+        if has_pattern:
+            patterns[i] = model.layers[i].self_attn.attention_probabilities
+    mlp = model.layers[0].mlp.mlp_output.save() if has_mlp else None
+
+assert patterns == {} and mlp.shape == (1, 10, 768)      # sdpa here: no patterns, but the MLP
+```
+
+For one block, `model.support(layer=i)["self_attn.attention_probabilities"]` is
+the flat form of the same check. `scripts/inspect_family.py <repo_id>` prints
+`support()` for a checkpoint without loading weights.
+
+## Forward order: `order` and `rank`
+
+Within one invoke, values are read and edited in the order the forward reaches them.
+`model.order(i)` lists block `i`'s available values in that order by `support(layer=i)`'s
+dotted names (`model.order()` the root's), and `model.rank(name, layer)` gives one sortable
+`(side, r)` per value: `side` is `-1` for a root value before the blocks, the layer for a
+block value, `num_layers` for a root value after them. Like `support()`, both are asked
+outside a trace; the first call measures the order with one probe run (a `scan` on a model
+not yet dispatched, a short `trace` on a dispatched one, whose modules a scan would leave
+holding fake tensors) and keeps it on the model, so route kernels (`route_kernels`,
+`chunk_per_token`) before it.
+
+Use them when one trace reads or edits values at several sites in an order the code
+decides: a helper that takes a list of `(value, block)` sites, a sweep that patches several
+values per block, a port of code that hooked modules in its own order. Sort the sites by
+`rank` instead of keeping a hand-written table of what comes first, which differs per
+family. When a plain trace raises `OutOfOrderError`, or a list read under `tracer.iter`
+comes back shifted by one step, compare the ranks of the reads involved.
+
+```python
+order = plain.order(0)                                   # GPT-2 under sdpa: the interior is unavailable, so not ranked
+assert "self_attn.attention_probabilities" not in order
+assert order["layer_input"] < order["self_attn.attention_output"] < order["mlp.mlp_output"] < order["layer_output"]
+assert plain.rank("input_ids") == (-1, 0) and plain.rank("logits")[0] == plain.num_layers
+
+reads = [("logits", None), ("layer_output", 1), ("mlp.mlp_output", 0), ("token_embeddings", None)]
+reads.sort(key=lambda read: plain.rank(*read))
+assert reads == [("token_embeddings", None), ("mlp.mlp_output", 0), ("layer_output", 1), ("logits", None)]
+```
+
+Equal ranks are one location (the queries, keys and values are one attention call's
+arguments), so either is read first; the queries and keys before the rotary are the
+arguments of the rotary call, ranked before them, and `self_attn.interface` is ranked
+between the values and the scores. A hybrid ranks each block shape separately. An
+unavailable value is not ranked, and `rank` raises `Unavailable` with `support()`'s
+reason; a name that is no value raises `KeyError`. The vision tower's values are not
+ranked. On `StandardizedVLLM` the ranks are measured on a weightless transformers model
+of the checkpoint, for the values the engine serves; a value the engine lacks raises
+`Unavailable` with the engine's reason.
+
+```python
+plain.rank("self_attn.attention_probabilities", 0)      # sdpa: the reason is support()'s
+```
+
+One `OutOfOrderError` is not about the order `rank` gives. A child module's value
+(`self_attn.q_proj.output`) then an interior value of that attention (`attention_queries`)
+fails in the first such trace on a model whose `self_attn.source` nothing has touched yet;
+once the model is dispatched (`dispatch=True`, or after its first trace), touch
+`model.layers[i].self_attn.source` outside the trace.
+
+## Gotchas
+
+- `hasattr(envoy, "attention_probabilities")` raises; use `support()`.
+- `getattr(envoy, name, None)` inside a trace can trip a served value. Decide
+  which blocks have `self_attn` or `mlp` before the trace.
+- `support()` predicts; the forward decides. A `SourceNotAvailable` at read time
+  means the forward differs from what the family expects, not that the value is
+  unavailable by configuration.
+- `attn_implementation` is transformers' default unless you pass it. The most
+  common reason in `support()` is the `'sdpa'` one, and the fix is in the message.
+- The repr lists a value whether or not this checkpoint has it. Only a value a
+  family marks `unavailable("...")` in its class body prints as
+  `Unavailable: <reason>`; a config-dependent reason (eager, `reorder_and_upcast_attn`) shows only in
+  `support()`.
+- A hybrid's `support()` is a long dict by design; read `support(layer=i)` for one
+  block.
+
+The nnterp repo page behind this file: `docs/usage/availability.md`.
