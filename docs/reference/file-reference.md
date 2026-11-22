@@ -67,5 +67,6 @@
 | `native/` | llama.cpp graph observation bridge and build command |
 | `looped_mechanisms/results.py` | Raw activation validation and result persistence |
 | `looped_mechanisms/report.py` | Public aggregate generator |
-| `site/` | Static benchmark dashboard and generated aggregate data |
+| `looped_mechanisms/geometry.py` | Gaussianity summaries and directed cross-loop nearest-neighbor indexes |
+| `site/` | Static benchmark dashboard, activation geometry explorer, and generated aggregate data |
 | `.agents/skills/` | Pinned upstream NDIF skills |

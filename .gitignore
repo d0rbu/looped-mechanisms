@@ -45,3 +45,5 @@ Thumbs.db
 /site/results.json
 /site/results.json.tmp
 .venv-ndif/
+
+/site/geometry/
