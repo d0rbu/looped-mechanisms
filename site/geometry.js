@@ -7,6 +7,7 @@
   let conditionVersion = 0;
   let matchVersion = 0;
   let renderedExample = null;
+  let loopPair = [0, 1];
   let shard = {url: null, promise: null};
 
   function node(tag, text) {
@@ -33,12 +34,6 @@
 
   function conditionPath(condition = state.condition) {
     return `${root}/${condition.backend}/${condition.id}`;
-  }
-
-  function fillLoops() {
-    const loops = Array.from({length: state.condition.passes}, (_, index) => [index, index]);
-    options("from", loops);
-    options("to", loops.filter(([index]) => index !== Number(get("from").value)));
   }
 
   const gaussianColors = [
@@ -181,8 +176,7 @@
 
   function renderDistances() {
     const distances = state.summary.mean_distances[get("layer").value];
-    const currentSource = Number(get("from").value);
-    const currentTarget = Number(get("to").value);
+    const [currentSource, currentTarget] = loopPair;
     const head = node("thead");
     const labels = node("tr");
     labels.append(node("th", "Source ↓ / Target →"),
@@ -204,11 +198,11 @@
           button.setAttribute("aria-label", `Loop ${source} to ${target}: ${distance.toFixed(3)}`);
           button.setAttribute("aria-pressed", source === currentSource && target === currentTarget);
           button.addEventListener("click", () => {
-            get("from").value = source;
-            fillLoops();
-            get("to").value = target;
-            updatePair();
-            get("distances").querySelector('button[aria-pressed="true"]')?.focus();
+            const selected = get("distances").querySelector('button[aria-pressed="true"]');
+            selected?.setAttribute("aria-pressed", "false");
+            button.setAttribute("aria-pressed", "true");
+            loopPair = [source, target];
+            showMatches();
           });
           cell.append(button);
         }
@@ -279,8 +273,9 @@
     li.append(link, ` · row ${sample.row} · token ${token + 1} · distance ${distance.toFixed(4)}`);
     const context = node("div");
     context.className = "token-snippet";
-    const start = Math.max(0, token - 8);
-    const end = Math.min(sample.tokens.length, token + 9);
+    const contextTokens = 32;
+    const start = Math.max(0, token - contextTokens);
+    const end = Math.min(sample.tokens.length, token + contextTokens + 1);
     context.append(
       (start ? "… " : "") + sample.tokens.slice(start, token).join(""),
       node("mark", sample.tokens[token] || "◌"),
@@ -292,8 +287,7 @@
 
   async function showMatches() {
     const version = ++matchVersion;
-    const from = Number(get("from").value);
-    const to = Number(get("to").value);
+    const [from, to] = loopPair;
     const path = `${conditionPath()}/${get("layer").value}-${from}.bin`;
     const position = state.position;
     const query = state.sample * state.summary.positions + position;
@@ -364,7 +358,7 @@
       get("single").hidden = hasNeighbors;
       if (hasNeighbors) {
         options("layer", Object.keys(summary.mean_distances).map((layer) => [layer, layer]));
-        fillLoops();
+        if (loopPair.some((loop) => loop >= condition.passes)) loopPair = [0, 1];
         options("dataset", state.catalog.sources.map(({name}) => [name, name]), get("dataset").value || "ARC-Challenge");
         renderDistances();
         selectExample();
@@ -414,8 +408,6 @@
   get("gaussian-chart").closest("details").addEventListener("toggle", drawGaussianity);
   window.addEventListener("resize", drawGaussianity);
   get("layer").addEventListener("change", updatePair);
-  get("from").addEventListener("change", () => { fillLoops(); updatePair(); });
-  get("to").addEventListener("change", updatePair);
   get("dataset").addEventListener("change", selectExample);
   get("example").addEventListener("change", renderSequence);
   start();

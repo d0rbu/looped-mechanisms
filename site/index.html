@@ -7,7 +7,7 @@
   <title>Looped Mechanisms · Inkling 2 Mini</title>
   <link rel="stylesheet" href="style.css?v=5">
   <script defer src="app.js?v=2"></script>
-  <script defer src="geometry.js?v=4"></script>
+  <script defer src="geometry.js?v=5"></script>
 </head>
 <body>
   <header class="topbar">
@@ -86,11 +86,9 @@
         </details>
         <div class="geometry-block" id="geometry-neighbor">
           <h3>Cross-loop nearest neighbors</h3>
-          <p class="geometry-note">Each cell averages the closest target distance across captured source tokens. Distance is Euclidean divided by √2,304. Candidates from the same prompt are excluded. Loops use zero-based indices.</p>
+          <p class="geometry-note">Each cell averages the closest target distance across captured source tokens. Distance is Euclidean divided by √2,304. Candidates from the same prompt are excluded. Select a cell to choose the source and target loops.</p>
           <div class="geometry-controls">
             <div class="field"><label for="geometry-layer">Recurrent layer</label><select id="geometry-layer"></select></div>
-            <div class="field"><label for="geometry-from">Source loop</label><select id="geometry-from"></select></div>
-            <div class="field"><label for="geometry-to">Target loop</label><select id="geometry-to"></select></div>
           </div>
           <div class="table-wrap"><table id="geometry-distances" aria-label="Average nearest-neighbor distances by source and target loop"></table></div>
           <div class="geometry-controls example-controls">
