@@ -5,15 +5,14 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f7f2">
   <title>Looped Mechanisms · Inkling 2 Mini</title>
-  <link rel="stylesheet" href="style.css">
-  <script defer src="app.js"></script>
+  <link rel="stylesheet" href="style.css?v=2">
+  <script defer src="app.js?v=2"></script>
 </head>
 <body>
   <header class="topbar">
     <a href="./" class="wordmark"><span aria-hidden="true">↻</span> Looped Mechanisms</a>
-    <nav aria-label="Study sections">
+    <nav aria-label="Site navigation">
       <a href="#benchmarks">Benchmarks</a>
-      <a href="#activations">Activations</a>
       <a href="https://github.com/d0rbu/looped-mechanisms">Source ↗</a>
     </nav>
   </header>
@@ -22,7 +21,7 @@
       <div class="intro-text">
         <p class="eyebrow">INKLING 2 MINI</p>
         <h1>Inside a looped<br>transformer</h1>
-        <p class="dek">Layer activations and benchmark accuracy across the fixed three-pass checkpoint and a variable-loop sweep from 1 to 16 passes.</p>
+        <p class="dek">Benchmark accuracy across the fixed three-pass checkpoint and a variable-loop sweep from 1 to 16 passes.</p>
       </div>
       <div class="diagram" aria-label="Prelude layers 0 to 5, recurring core layers 6 to 17, and final block layers 18 to 23">
         <div class="diagram-step"><span>Prelude</span><b>0–5</b></div>
@@ -65,30 +64,6 @@
           <div class="table-wrap"><table><thead><tr><th>Checkpoint</th><th>Passes</th><th>Accuracy</th><th>Correct / scored</th></tr></thead><tbody id="scores"></tbody></table></div>
         </details>
       </div>
-    </section>
-
-    <section class="panel" id="activations">
-      <div class="panel-header">
-        <div><h2>Activation map</h2><p>Active-block vectors at the final prompt token, averaged across the selected dataset.</p></div>
-      </div>
-      <div class="selectors">
-        <div class="field"><label for="condition">Checkpoint and passes</label><select id="condition"></select></div>
-        <div class="field"><label for="dataset">Dataset</label><select id="dataset"></select></div>
-        <div class="field"><label for="metric">Metric</label><select id="metric"><option value="rms">Activation RMS</option><option value="cosine">Cosine to previous pass</option></select></div>
-      </div>
-      <p class="empty" id="activation-empty" hidden></p>
-      <div id="map-area" hidden>
-        <p class="map-meta" id="map-meta"></p>
-        <div class="map-scroll"><div id="map"></div></div>
-        <p class="map-caption" id="cell-value" aria-live="polite">Select a cell to inspect the value.</p>
-      </div>
-    </section>
-
-    <section class="methods" id="methods">
-      <h2>Study design</h2>
-      <p>Each condition uses the same seeded dataset samples, with a target of 64 items per source. A traced forward captures four token positions at every layer visit. Agent traces replay recorded text and tool responses. ARC-Challenge and HellaSwag are scored as four-letter forced-choice tasks.</p>
-      <p>NDIF runs both checkpoints at three passes. The local sweep uses the IQ4_NL quantization of each checkpoint. The active block is the running sum within the current six-layer block.</p>
-      <ul id="source-list"></ul>
     </section>
   </main>
   <footer><span>Looped Mechanisms</span><time id="updated"></time></footer>
