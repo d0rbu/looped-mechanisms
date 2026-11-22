@@ -110,8 +110,9 @@ The files for the hosted fixed three-pass model and local IQ4_NL variable
 dataset. All tokens and visits from each held-out prompt stay in validation.
 Each recurrent layer has its own ridge classifier fitted on the raw active
 block vectors at four token positions. Its linear head has 3 or 16 outputs in
-loop order. The dashboard reports top-1 validation accuracy and confusion
-counts, with the balanced-class chance rate as a reference.
+loop order. The dashboard plots both runs’ top-1 validation accuracy across
+recurrent layers and shows confusion counts for the selected run. The legend
+reports each run’s balanced-class chance rate.
 
 The five projections share one set of plotted observations, the final
 captured token on each held-out prompt at each loop visit. The random map uses
