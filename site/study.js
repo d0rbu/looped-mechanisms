@@ -7,7 +7,10 @@
   const accuracyColors = ["#176b51", "#a7501b", "#28659d"];
   const scoreRequests = new Map();
   let comparison = [];
-  let catalog, report, projection;
+  const distillationRuns = ["distillation-06.json", "distillation.json", "distillation-17.json"];
+  const distillationColors = ["#28659d", "#176b51", "#a7501b"];
+  let students = [];
+  let catalog, report, projection, layerPredictions;
   let conditionVersion = 0, projectionVersion = 0;
   let plotted = [];
   let hiddenLoops = new Set();
@@ -133,6 +136,103 @@
     get("accuracy-layer").textContent = `Layer ${selected} · ${values.join(" | ")}`;
   }
 
+  function predictionAxes(canvas, labels, ticks, range, bottomLabel, format) {
+    const width = canvas.clientWidth, height = canvas.clientHeight;
+    if (!width) return null;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    const ctx = canvas.getContext("2d");
+    ctx.scale(ratio, ratio);
+    const left = 39, right = width - 13, top = 10, bottom = height - 37;
+    const step = (right - left) / labels.length;
+    const x = (layer) => left + (layer - labels[0] + 0.5) * step;
+    const y = (value) => bottom - (value - range[0]) / (range[1] - range[0]) * (bottom - top);
+    ctx.font = "11px system-ui";
+    ctx.fillStyle = "#4b625b";
+    ctx.strokeStyle = "#d6dfd7";
+    ctx.textAlign = "right";
+    for (const tick of ticks) {
+      ctx.beginPath();
+      ctx.moveTo(left, y(tick));
+      ctx.lineTo(right, y(tick));
+      ctx.stroke();
+      ctx.fillText(format(tick), left - 7, y(tick) + 4);
+    }
+    ctx.textAlign = "center";
+    const labelStep = Math.max(1, Math.ceil(16 / step));
+    for (const [index, layer] of labels.entries()) {
+      if (index % labelStep === 0) ctx.fillText(layer, x(layer), bottom + 15);
+    }
+    ctx.fillText(bottomLabel, (left + right) / 2, height - 5);
+    return {ctx, x, y, step};
+  }
+
+  function drawLayerHistogram(row, labels) {
+    const canvas = get("layer-histogram");
+    const axis = predictionAxes(canvas, labels, [0, 0.25, 0.5, 0.75, 1], [0, 1], "Predicted layer",
+      (value) => `${value * 100}%`);
+    if (!axis) return;
+    const {ctx, x, y, step} = axis;
+    const width = step * 0.67;
+    for (const [index, layer] of labels.entries()) {
+      ctx.fillStyle = row.layer === layer ? "#176b51" : "#819aab";
+      const top = y(row.counts[index] / row.examples);
+      ctx.fillRect(x(layer) - width / 2, top, width, y(0) - top);
+    }
+    const distribution = labels.map((layer, i) => `layer ${layer} ${percent(row.counts[i] / row.examples)}`);
+    canvas.setAttribute("aria-label", `Predictions for true layer ${row.layer}. ${distribution.join(", ")}.`);
+  }
+
+  function drawLayerTrend(rows, labels, selected) {
+    const band = rows.map((row) => Math.sqrt(row.variance));
+    const low = Math.min(labels[0], ...rows.map((row, i) => row.mean - band[i]));
+    const high = Math.max(labels.at(-1), ...rows.map((row, i) => row.mean + band[i]));
+    const axis = predictionAxes(get("layer-trend"), labels, [6, 9, 12, 15, 17], [low - 0.4, high + 0.4],
+      "True layer", String);
+    if (!axis) return;
+    const {ctx, x, y} = axis;
+    ctx.fillStyle = "#dcebe3";
+    ctx.beginPath();
+    rows.forEach((row, i) => ctx.lineTo(x(row.layer), y(row.mean + band[i])));
+    for (let i = rows.length - 1; i >= 0; i--) {
+      ctx.lineTo(x(rows[i].layer), y(rows[i].mean - band[i]));
+    }
+    ctx.closePath();
+    ctx.fill();
+
+    ctx.strokeStyle = "#6c7d76";
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(x(labels[0]), y(labels[0]));
+    ctx.lineTo(x(labels.at(-1)), y(labels.at(-1)));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.strokeStyle = ctx.fillStyle = "#176b51";
+    ctx.lineWidth = 2;
+    ctx.beginPath();
+    for (const row of rows) ctx.lineTo(x(row.layer), y(row.mean));
+    ctx.stroke();
+    for (const row of rows) {
+      ctx.beginPath();
+      ctx.arc(x(row.layer), y(row.mean), row.layer === selected ? 4.5 : 2.5, 0, 2 * Math.PI);
+      ctx.fill();
+    }
+  }
+
+  function drawLayerPredictions() {
+    if (!layerPredictions) return;
+    const {rows, labels, accuracy, validation_prompts: prompts} = layerPredictions;
+    const layer = Number(get("layer").value);
+    const row = rows.find((entry) => entry.layer === layer);
+    if (!row) return;
+    get("layer-prediction-note").textContent = `12-output layer classifier · ${percent(accuracy)} held-out accuracy across ${prompts} prompts.`;
+    get("layer-histogram-note").textContent = `True layer ${layer} · ${row.examples.toLocaleString()} predictions · mean ${row.mean.toFixed(2)} · variance ${row.variance.toFixed(2)} layers².`;
+    drawLayerHistogram(row, labels);
+    drawLayerTrend(rows, labels, layer);
+  }
+
   function renderScores() {
     const layer = Number(get("layer").value);
     const stats = report.layers.find((row) => row.layer === layer);
@@ -150,6 +250,7 @@
     }));
     get("confusion").replaceChildren(head, body);
     drawAccuracy();
+    drawLayerPredictions();
   }
 
   function renderLegend() {
@@ -242,9 +343,15 @@
     const version = ++conditionVersion;
     ++projectionVersion;
     try {
-      const data = await scoresFor(selectedRun());
+      const run = selectedRun();
+      const [data, predictions] = await Promise.all([
+        scoresFor(run),
+        json(`${runPath(run)}/layer-predictions.json`).catch(() => null),
+      ]);
       if (version !== conditionVersion) return;
       report = data;
+      layerPredictions = predictions;
+      get("layer-predictions").hidden = !predictions;
       hiddenLoops = new Set();
       options("layer", report.layers.map(({layer}) => [layer, `Layer ${layer}`]));
       get("status").hidden = true;
@@ -258,26 +365,75 @@
     }
   }
 
+  function drawDistillationMetric(metric, baseline) {
+    const full = students.reduce((best, current) =>
+      current.data.layers.length > best.data.layers.length ? current : best);
+    const scores = full.data.layers;
+    const values = students.flatMap(({data}) => data.layers.map((row) => row[metric]));
+    const max = Math.max(...values, ...scores.map((row) => row[baseline]));
+    const upper = metric === "rmse" ? Math.max(1, Math.ceil(max)) : 1;
+    const lower = metric === "rmse" ? 0 : -1;
+    const ticks = Array.from({length: 5}, (_, i) => lower + i * (upper - lower) / 4);
+    const layers = Array.from({length: 24}, (_, layer) => layer);
+    const axis = predictionAxes(get(`distill-${metric}`), layers, ticks, [lower, upper], "Teacher layer",
+      (tick) => Number.isInteger(tick) ? String(tick) : tick.toFixed(2));
+    if (!axis) return;
+    const {ctx, x, y} = axis;
+    ctx.lineWidth = 1.5;
+    ctx.setLineDash([4, 4]);
+    ctx.strokeStyle = "#6c7d76";
+    ctx.beginPath();
+    for (const row of scores) ctx.lineTo(x(row.layer), y(row[baseline]));
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (const {data, color} of students) {
+      ctx.strokeStyle = ctx.fillStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (const row of data.layers) ctx.lineTo(x(row.layer), y(row[metric]));
+      ctx.stroke();
+      for (const row of data.layers) {
+        ctx.beginPath();
+        ctx.arc(x(row.layer), y(row[metric]), row.layer === data.train_layer ? 4 : 2, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
+  }
+
+  function drawDistillation() {
+    if (!students.length) return;
+    drawDistillationMetric("rmse", "copy_rmse");
+    drawDistillationMetric("cosine", "copy_cosine");
+  }
+
   async function loadDistillation() {
     const status = get("distill-status");
-    try {
-      const data = await json("distillation.json");
-      get("distill-summary").textContent = `Trained on layer ${data.train_layer} with ${data.student_parameters.toLocaleString()} parameters versus ${data.teacher_parameters.toLocaleString()} in the NDIF teacher layer. Validation uses ${data.validation_prompts} held-out prompt prefixes of up to ${data.max_prompt_tokens} tokens. The same student is evaluated at every layer.`;
-      get("distill-rows").replaceChildren(...data.layers.map((score) => {
-        const row = node("tr");
-        row.dataset.trainingLayer = score.layer === data.train_layer;
-        row.append(...[score.layer, score.normalized_rmse.toFixed(4), score.copy_normalized_rmse.toFixed(4),
-          score.cosine.toFixed(4), score.tokens.toLocaleString()].map((value) => node("td", value)));
-        return row;
+    const reports = await Promise.allSettled(distillationRuns.map(async (file, i) => ({
+      data: await json(file), color: distillationColors[i],
+    })));
+    students = reports.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
+    if (students.length) {
+      const {data} = students[0];
+      const exposures = data.history.reduce((sum, epoch) => sum + epoch.tokens, 0);
+      get("distill-summary").textContent = `The teacher is NDIF Inkling 2 Mini with three fixed passes. Each student has ${data.student_parameters.toLocaleString()} parameters and saw ${exposures.toLocaleString()} token presentations across ${data.history.length} epochs. Validation uses ${data.validation_prompts} held-out prompts, with prefixes up to ${data.max_prompt_tokens} tokens.`;
+      const labels = [...students.map(({data: student, color}) => [`Trained on layer ${student.train_layer}`, color]),
+        ["Copy-input baseline (dashed)", "#6c7d76"]];
+      get("distill-legend").replaceChildren(...labels.map(([name, color]) => {
+        const container = node("div");
+        const dot = node("span");
+        dot.style.setProperty("--loop-color", color);
+        dot.setAttribute("aria-hidden", "true");
+        container.append(dot, name);
+        return container;
       }));
-      status.hidden = data.layers.length === 24;
-      status.textContent = `${data.layers.length}/24 evaluation layers available.`;
       get("distill-content").hidden = false;
-      if (status.hidden) return;
-    } catch {
-      if (get("distill-content").hidden) status.textContent = "Waiting for held-out distillation results.";
+      drawDistillation();
     }
-    window.setTimeout(loadDistillation, 30_000);
+    const complete = students.filter(({data}) => data.layers.length === 24).length;
+    status.hidden = complete === distillationRuns.length;
+    status.textContent = `${complete}/${distillationRuns.length} students evaluated at all 24 layers.`;
+    if (!status.hidden) window.setTimeout(loadDistillation, 30_000);
   }
 
   async function start() {
@@ -313,6 +469,8 @@
   });
   window.addEventListener("resize", drawProjection);
   window.addEventListener("resize", drawAccuracy);
+  window.addEventListener("resize", drawLayerPredictions);
+  window.addEventListener("resize", drawDistillation);
   start();
   loadDistillation();
 })();

@@ -14,11 +14,12 @@ from torch.nn import functional as F  # ty: ignore[unresolved-import]
 
 from looped_mechanisms.design import HIDDEN
 from looped_mechanisms.inputs import SEED, Item, load_items
-from looped_mechanisms.layer_pairs import BLOCK_LAYER, MAX_TOKENS, TRAIN_LAYER
+from looped_mechanisms.layer_pairs import BLOCK_LAYER, MAX_TOKENS, TRAIN_LAYER, training_split
 from looped_mechanisms.probe_study import validation_ids
 from looped_mechanisms.results import atomic_json
 
 TEACHER_PARAMETERS = 1_048_818_048
+FULL_ATTENTION_TEACHER_PARAMETERS = 1_048_974_720
 STUDENT_WIDTH = 221_184
 BLOCKS = 4
 
@@ -214,8 +215,10 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cohort", type=Path, default=Path("data/cohort"))
     parser.add_argument("--pairs", type=Path, default=Path("artifacts/layer-io-v1"))
-    parser.add_argument("--weights", type=Path, default=Path("artifacts/distillation/student.pt"))
-    parser.add_argument("--output", type=Path, default=Path("site/loop-study/v1/distillation.json"))
+    parser.add_argument("--train-layer", type=int, choices=range(6, 18), default=TRAIN_LAYER)
+    parser.add_argument("--capture-layer", type=int, choices=range(6, 18), action="append")
+    parser.add_argument("--weights", type=Path)
+    parser.add_argument("--output", type=Path)
     parser.add_argument("--phase", choices=("both", "train", "evaluate"), default="both")
     parser.add_argument("--device", default="cuda")
     parser.add_argument("--epochs", type=int, default=8)
@@ -224,6 +227,16 @@ def main() -> None:
     args = parser.parse_args()
     if args.epochs < 1 or args.token_budget < 1 or args.rate <= 0:
         parser.error("epochs, token budget and learning rate must be positive")
+    train_layer = args.train_layer
+    captured_layers = tuple(sorted(set(args.capture_layer or [train_layer])))
+    if train_layer not in captured_layers:
+        parser.error("the training layer must appear in --capture-layer")
+    suffix = "" if train_layer == TRAIN_LAYER else f"-{train_layer:02d}"
+    weights = args.weights or Path(f"artifacts/distillation/student{suffix}.pt")
+    output = args.output or Path(f"site/loop-study/v1/distillation{suffix}.json")
+    teacher_parameters = (
+        FULL_ATTENTION_TEACHER_PARAMETERS if train_layer % 6 == 5 else TEACHER_PARAMETERS
+    )
     items = load_items(args.cohort)
     held_out = validation_ids(items)
     train_items = [item for item in items if item.identifier not in held_out]
@@ -232,8 +245,8 @@ def main() -> None:
     torch.set_float32_matmul_precision("high")
     device = torch.device(args.device)
     if args.phase == "evaluate":
-        checkpoint = torch.load(args.weights, map_location="cpu", weights_only=True)
-        if checkpoint["width"] != STUDENT_WIDTH or checkpoint["train_layer"] != TRAIN_LAYER:
+        checkpoint = torch.load(weights, map_location="cpu", weights_only=True, mmap=True)
+        if checkpoint["width"] != STUDENT_WIDTH or checkpoint["train_layer"] != train_layer:
             raise ValueError("Checkpoint belongs to another distillation condition")
         with torch.device("meta"):
             student = LayerStudent(STUDENT_WIDTH)
@@ -246,10 +259,14 @@ def main() -> None:
         train_baseline = checkpoint["train_copy_rmse"]
         del checkpoint
     else:
-        train_files = files_for(train_items, args.pairs / "train", [TRAIN_LAYER])
+        train_files = files_for(
+            train_items, args.pairs / training_split(captured_layers), list(captured_layers)
+        )
         with torch.device(device):
             student = LayerStudent(STUDENT_WIDTH)
-        train_data = [read_sequence(path, TRAIN_LAYER, [TRAIN_LAYER]) for path in train_files]
+        train_data = [
+            read_sequence(path, train_layer, list(captured_layers)) for path in train_files
+        ]
         baseline_error = sum(
             np.square(sequence.target.astype(np.float32) - sequence.active).sum(dtype=np.float64)
             for sequence in train_data
@@ -259,24 +276,24 @@ def main() -> None:
         student.train()
         history = train(student, train_data, args.epochs, args.token_budget, device, args.rate)
         del train_data
-        args.weights.parent.mkdir(parents=True, exist_ok=True)
-        temporary = args.weights.with_suffix(".tmp")
+        weights.parent.mkdir(parents=True, exist_ok=True)
+        temporary = weights.with_suffix(".tmp")
         torch.save(
             {
                 "model": student.state_dict(),
                 "width": STUDENT_WIDTH,
-                "train_layer": TRAIN_LAYER,
+                "train_layer": train_layer,
                 "history": history,
                 "train_copy_rmse": train_baseline,
             },
             temporary,
         )
-        temporary.replace(args.weights)
-        print(f"Saved student to {args.weights}", flush=True)
+        temporary.replace(weights)
+        print(f"Saved student to {weights}", flush=True)
         if args.phase == "train":
             return
     student_parameters = sum(parameter.numel() for parameter in student.parameters())
-    if student_parameters < TEACHER_PARAMETERS:
+    if student_parameters < teacher_parameters:
         raise ValueError("Student capacity is smaller than the full teacher layer")
     student.eval()
     val_files = files_for(val_items, args.pairs / "validation", list(range(24)))
@@ -285,7 +302,7 @@ def main() -> None:
         with np.load(path) as saved:
             loaded.append({name: saved[name] for name in saved.files})
     results = []
-    args.output.parent.mkdir(parents=True, exist_ok=True)
+    output.parent.mkdir(parents=True, exist_ok=True)
     for layer in range(24):
         data = [
             Sequence(
@@ -298,12 +315,12 @@ def main() -> None:
         score = evaluate(student, data, args.token_budget, device)
         results.append({"layer": layer, **score})
         atomic_json(
-            args.output,
+            output,
             {
                 "teacher_condition": "NDIF · Inkling 2 Mini · fixed 3 passes",
-                "teacher_parameters": TEACHER_PARAMETERS,
+                "teacher_parameters": teacher_parameters,
                 "student_parameters": student_parameters,
-                "train_layer": TRAIN_LAYER,
+                "train_layer": train_layer,
                 "max_prompt_tokens": MAX_TOKENS,
                 "train_prompts": len(train_items),
                 "validation_prompts": len(val_items),

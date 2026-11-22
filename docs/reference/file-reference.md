@@ -69,6 +69,7 @@
 | `looped_mechanisms/report.py` | Public aggregate generator |
 | `looped_mechanisms/geometry.py` | Gaussianity summaries and directed cross-loop nearest-neighbor indexes |
 | `looped_mechanisms/probe_study.py` | Prompt-grouped loop classifier training and five activation projections |
+| `looped_mechanisms/layer_classifier.py` | Held-out physical-layer prediction distributions and moments |
 | `looped_mechanisms/layer_pairs.py` | NDIF decoder inputs and outputs for the distillation study |
 | `looped_mechanisms/distill.py` | Teacher-layer-sized student training and transfer evaluation |
 | `site/plot-colors.js` | Ordered loop color scale shared by activation charts |

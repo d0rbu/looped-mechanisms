@@ -21,7 +21,19 @@ BLOCK_LAYER = (0, *([1] * 6), *([7] * 6), *([13] * 5), 18, *([19] * 5))
 BLOCK_COUNT = {0: 0, 1: 1, 7: 2, 13: 3, 18: 3, 19: 4}
 
 
-def collect(items: list[Item], root: Path, validation: bool, batch_size: int) -> None:
+def training_split(layers: tuple[int, ...]) -> str:
+    if layers == (TRAIN_LAYER,):
+        return "train"
+    return "train-" + "-".join(f"{layer:02d}" for layer in layers)
+
+
+def collect(
+    items: list[Item],
+    root: Path,
+    validation: bool,
+    batch_size: int,
+    train_layers: tuple[int, ...] = (TRAIN_LAYER,),
+) -> None:
     import torch  # ty: ignore[unresolved-import]
     from nnsight import CONFIG, TransformersModel, save  # ty: ignore[unresolved-import]
 
@@ -31,9 +43,11 @@ def collect(items: list[Item], root: Path, validation: bool, batch_size: int) ->
         CONFIG.APP.REMOTE_LOGGING = False
     condition = Condition("fixed", 3)
     runtime = deployment_status(condition)
-    layers = tuple(range(24)) if validation else (TRAIN_LAYER,)
-    representatives = (18,) if validation else (TRAIN_LAYER,)
-    output_layers = (17, 23) if validation else (TRAIN_LAYER,)
+    layers = tuple(range(24)) if validation else train_layers
+    # Several layers can share the same completed block inputs.
+    groups = {BLOCK_LAYER[layer]: layer for layer in layers}
+    representatives = (18,) if validation else tuple(sorted(groups.values()))
+    output_layers = (17, 23) if validation else layers
     root.mkdir(parents=True, exist_ok=True)
     todo = []
     for item in items:
@@ -116,7 +130,10 @@ def collect(items: list[Item], root: Path, validation: bool, batch_size: int) ->
                 arrays = {
                     "active": active_array,
                     "target": target_array,
-                    "blocks_7": completed[0].numpy(),
+                    **{
+                        f"blocks_{BLOCK_LAYER[layer]}": blocks.numpy()
+                        for layer, blocks in zip(representatives, completed, strict=True)
+                    },
                 }
             for representative in {BLOCK_LAYER[layer] for layer in layers}:
                 if arrays[f"blocks_{representative}"].shape != (
@@ -155,12 +172,27 @@ def main() -> None:
     parser.add_argument("--artifacts", type=Path, default=Path("artifacts/layer-io-v1"))
     parser.add_argument("--limit", type=int)
     parser.add_argument("--batch-size", type=int, choices=range(1, 9), default=1)
+    parser.add_argument("--train-layer", type=int, choices=range(6, 18), action="append")
+    parser.add_argument("--shard", type=int, default=0)
+    parser.add_argument("--shards", type=int, default=1)
     args = parser.parse_args()
+    if not 0 <= args.shard < args.shards:
+        parser.error("shard must be in [0, shards)")
+    if args.split == "validation" and args.train_layer:
+        parser.error("--train-layer is only used for training captures")
     items = load_items(args.cohort)
     held_out = validation_ids(items)
     is_validation = args.split == "validation"
     selected = [item for item in items if (item.identifier in held_out) == is_validation]
-    collect(selected[: args.limit], args.artifacts / args.split, is_validation, args.batch_size)
+    layers = tuple(sorted(set(args.train_layer))) if args.train_layer else (TRAIN_LAYER,)
+    split = args.split if is_validation else training_split(layers)
+    collect(
+        selected[: args.limit][args.shard :: args.shards],
+        args.artifacts / split,
+        is_validation,
+        args.batch_size,
+        layers,
+    )
 
 
 if __name__ == "__main__":
