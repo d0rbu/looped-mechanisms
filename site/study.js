@@ -4,7 +4,7 @@
   const get = (id) => document.getElementById(`study-${id}`);
   const root = "loop-study/v1";
   const names = {random: "Random projection", pca: "PCA", tsne: "t-SNE", umap: "UMAP", lda: "LDA"};
-  const accuracyColors = ["#176b51", "#a7501b", "#28659d", "#893b79"];
+  const accuracyColors = ["#176b51", "#a7501b", "#28659d"];
   const scoreRequests = new Map();
   let comparison = [];
   let catalog, report, projection;

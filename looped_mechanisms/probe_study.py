@@ -16,7 +16,6 @@ RUNS = (
     (NDIF, Condition("fixed", 3)),
     (LOCAL, Condition("variable", 16)),
     (NDIF, Condition("variable", 3)),
-    (LOCAL, Condition("variable", 3)),
 )
 METHODS = ("random", "pca", "tsne", "umap", "lda")
 VALIDATION_PER_SOURCE = 16

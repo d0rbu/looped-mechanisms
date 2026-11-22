@@ -106,7 +106,7 @@ completed conditions incrementally under `site/geometry/v1`.
 ## Loop classification and projections
 
 The probes use the hosted fixed and variable three-pass runs and the local
-IQ4_NL variable three- and 16-pass runs. A seeded split holds out 16 of 64 prompts per
+IQ4_NL variable 16-pass run. A seeded split holds out 16 of 64 prompts per
 dataset. All tokens and visits from each held-out prompt stay in validation.
 Each recurrent layer has its own ridge classifier fitted on the raw active
 block vectors at four token positions. Its linear head has 3 or 16 outputs in
@@ -126,8 +126,8 @@ loop in the selected condition.
 OPENBLAS_NUM_THREADS=6 NUMBA_NUM_THREADS=4 uv run --locked --with scikit-learn==1.9.1 --with umap-learn==0.6.0 python -m looped_mechanisms.probe_study
 ```
 
-Use `--run ndif/variable-03` or `--run llama.cpp-iq4/variable-03` to build
-just one of the variable three-pass conditions.
+Use `--run ndif/variable-03` to build just the hosted variable three-pass
+condition.
 
 ## Decoder-layer distillation
 
