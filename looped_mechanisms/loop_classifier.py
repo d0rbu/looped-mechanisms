@@ -58,15 +58,29 @@ def fit(
     loop_order = torch.arange(loops, device=device).repeat_interleave(POSITIONS)
     train_labels = loop_order.repeat(len(training))
     val_labels = loop_order.repeat(len(validation))
-    train_rows = torch.from_numpy(training.reshape(-1, HIDDEN)).to(
-        device=device, dtype=torch.float32
-    )
+    train_rows = torch.from_numpy(training.reshape(-1, HIDDEN)).to(device)
     val_rows = torch.from_numpy(validation.reshape(-1, HIDDEN)).to(
         device=device, dtype=torch.float32
     )
-    scale, mean = torch.std_mean(train_rows, dim=0, correction=0)
-    scale = scale.clamp_min(1e-6)
-    train_rows.sub_(mean).div_(scale)
+    if device.type == "cuda":
+        # Keep the corpus in FP16 on the device and calculate moments in bounded FP32 chunks.
+        chunks = train_rows.split(32_768)
+        variances, means = zip(
+            *(torch.var_mean(rows.float(), dim=0, correction=0) for rows in chunks),
+            strict=True,
+        )
+        weights = torch.tensor([len(rows) / len(train_rows) for rows in chunks], device=device)
+        means = torch.stack(means)
+        mean = torch.sum(means * weights[:, None], dim=0)
+        variance = torch.sum(
+            (torch.stack(variances) + (means - mean).square()) * weights[:, None], dim=0
+        )
+        scale = variance.sqrt().clamp_min(1e-6)
+    else:
+        train_rows = train_rows.float()
+        scale, mean = torch.std_mean(train_rows, dim=0, correction=0)
+        scale = scale.clamp_min(1e-6)
+        train_rows.sub_(mean).div_(scale)
     val_rows.sub_(mean).div_(scale)
     torch.manual_seed(SEED + layer)
     model = nn.Sequential(nn.Linear(HIDDEN, width), nn.GELU(), nn.Linear(width, loops)).to(device)
@@ -77,7 +91,10 @@ def fit(
     for _ in range(EPOCHS):
         for indices in torch.randperm(len(train_rows), device=device).split(batch_size):
             optimizer.zero_grad(set_to_none=True)
-            loss = nn.functional.cross_entropy(model(train_rows[indices]), train_labels[indices])
+            batch = train_rows[indices]
+            if batch.dtype == torch.float16:
+                batch = batch.float().sub_(mean).div_(scale)
+            loss = nn.functional.cross_entropy(model(batch), train_labels[indices])
             loss.backward()
             optimizer.step()
         schedule.step()

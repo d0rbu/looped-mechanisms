@@ -21,7 +21,9 @@ def result_dir(root: Path, backend: str, condition: Condition) -> Path:
     return root / backend / condition.name
 
 
-def complete(directory: Path, item: Item, runtime: str) -> bool:
+def complete(
+    directory: Path, item: Item, runtime: str, *, capture_layer: int | None = None
+) -> bool:
     marker = directory / f"{item.identifier}.json"
     if not marker.is_file():
         return False
@@ -30,6 +32,7 @@ def complete(directory: Path, item: Item, runtime: str) -> bool:
     if (
         record["input_sha256"] != item.digest
         or record["runtime"] != runtime
+        or record.get("physical_layer") != capture_layer
         or not vector_file.exists()
         or vector_file.stat().st_size != record["bytes"]
     ):
@@ -51,8 +54,18 @@ def save_result(
     token_ids: list[int],
     active: NDArray[Any],
     logits: list[float] | None,
+    *,
+    capture_layer: int | None = None,
 ) -> None:
     layout = visits(condition)
+    if capture_layer is not None:
+        layout = tuple(
+            visit
+            for visit in layout
+            if visit.layer == capture_layer and visit.pass_number is not None
+        )
+        if not layout:
+            raise ValueError(f"Physical layer {capture_layer} does not recur")
     expected = (len(layout), POSITIONS, HIDDEN)
     if active.shape != expected or not np.isfinite(active).all():
         raise ValueError(
@@ -71,7 +84,7 @@ def save_result(
     cosine: list[float | None] = [None] * len(layout)
     for index, visit in enumerate(layout):
         if visit.pass_number is not None and visit.pass_number > 1:
-            prev = index - 12
+            prev = index - (1 if capture_layer is not None else 12)
             norm_product = float(np.linalg.norm(last[prev]) * np.linalg.norm(last[index]))
             if norm_product > 0:
                 cosine[index] = float(
@@ -100,6 +113,7 @@ def save_result(
             "bytes": vectors.stat().st_size,
             "tokens": len(token_ids),
             "visits": len(layout),
+            **({"physical_layer": capture_layer} if capture_layer is not None else {}),
             "prediction": prediction,
             "answer": item.answer,
             "choice_logits": logits,

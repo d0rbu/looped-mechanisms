@@ -143,14 +143,16 @@ held-out predictions in each predicted loop for a chosen true loop.
 The prediction curve shows the mean predicted loop at each true loop,
 with a band of one population standard deviation on either side.
 
-### Expanded 16-loop classifiers
+### Larger classifier cohorts
 
-The expanded probe uses the local IQ4_NL 16-pass condition. It adds 2,592
-unique prompts to the original 288 training prompts and evaluates on the
-original 96 held-out prompts. It samples the same pinned source files and
-redistributes slots from exhausted sources across the remaining sources.
-All 16 loop visits and four positions per prompt contribute training
-examples at layer 6.
+The 512-unit baselines add 2,592 unique prompts to the original 288
+training prompts in each condition. The supplement samples the same pinned
+source files and redistributes slots from exhausted sources. The expanded
+local 16-pass layer-6 probe adds 25,920 distinct prompts from the pinned
+SmolTalk training corpus, for 28,800 training prompts. All probes use
+the original 96 held-out prompts. The expanded model uses all 16 loop
+visits and four token positions per prompt, retaining only layer 6 for
+the 25,920 additional captures.
 
 The expanded layer-6 head has 5,120 hidden units with GELU and 16 logits,
 giving 11,883,536 trainable parameters. The 512-unit baseline has 1,188,368.
@@ -161,6 +163,12 @@ dashboard adds the expanded layer-6 accuracy after its held-out evaluation.
 ```sh
 uv run --locked python -m looped_mechanisms.large_loop_probe prepare
 uv run --locked python -m looped_mechanisms.large_loop_probe capture --models "$models" --offset 0 --count 2592
+uv run --locked python -m looped_mechanisms.large_loop_probe capture --models "$models" --passes 3 --count 2592
+uv run --env-file .env --no-project --python "$teacher_python" -- python -m looped_mechanisms.large_loop_probe capture-hosted --checkpoint fixed
+uv run --env-file .env --no-project --python "$teacher_python" -- python -m looped_mechanisms.large_loop_probe capture-hosted --checkpoint variable
+OMP_NUM_THREADS=6 "$torch_python" -m looped_mechanisms.probe_study --classifiers-only --extra-cohort data/loop-probe-16-expanded.json --extra-artifacts artifacts/loop-probe-16-expanded --run llama.cpp-iq4/variable-16 --run llama.cpp-iq4/variable-03 --run ndif/fixed-03 --run ndif/variable-03
+"$torch_python" -m looped_mechanisms.large_loop_probe prepare-supplement
+uv run --locked python -m looped_mechanisms.large_loop_probe capture --models "$models" --compact --count 25920
 "$cuda_python" -m looped_mechanisms.large_loop_probe train
 ```
 

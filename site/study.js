@@ -81,7 +81,7 @@
       const dot = node("span");
       dot.style.setProperty("--loop-color", color);
       dot.setAttribute("aria-hidden", "true");
-      labelNode.append(dot, `${name} (${percent(1 / data.head_dim)} chance)`);
+      labelNode.append(dot, `${name} (${data.train_prompts.toLocaleString()} training prompts, ${percent(1 / data.head_dim)} chance)`);
       return labelNode;
     }));
     get("accuracy-comparison").hidden = false;
