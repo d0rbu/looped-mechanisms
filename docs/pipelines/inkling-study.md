@@ -140,6 +140,29 @@ held-out predictions in each predicted loop for a chosen true loop.
 The prediction curve shows the mean predicted loop at each true loop,
 with a band of one population standard deviation on either side.
 
+### Expanded 16-loop classifiers
+
+The expanded probe uses the local IQ4_NL 16-pass condition. It adds 2,592
+unique prompts to the original 288 training prompts and evaluates on the
+original 96 held-out prompts. It samples the same pinned source files and
+redistributes slots from exhausted sources across the remaining sources.
+All 16 loop visits and four positions per prompt contribute training
+examples at each physical layer.
+
+Each head has a hidden layer of width 159 with GELU and 16 logits. The head
+has 369,055 trainable parameters, compared with 36,880 for ridge. Training
+uses feature means and scales computed from training prompts, then fits for
+20 epochs with AdamW and a cosine learning-rate schedule. The aggregate
+report includes per-layer accuracy, the original ridge accuracy on the same
+prompts, and the confusion counts. The dashboard adds its accuracy curve
+when all 12 heads have been evaluated.
+
+```sh
+uv run --locked python -m looped_mechanisms.large_loop_probe prepare
+uv run --locked python -m looped_mechanisms.large_loop_probe capture --models "$models" --offset 0 --count 2592
+"$cuda_python" -m looped_mechanisms.large_loop_probe train
+```
+
 ## Decoder-layer distillation
 
 The fixed three-pass NDIF decoder is the teacher. The capture uses up to the

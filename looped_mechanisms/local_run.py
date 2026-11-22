@@ -16,7 +16,7 @@ from looped_mechanisms.inputs import SOURCES, Item, load_items
 from looped_mechanisms.results import complete, result_dir, save_result
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Callable, Iterator
     from ctypes import Array
 
 LLAMA_REVISION = "225a5345bbb0e0c70859af5441ba922beb666fcf"
@@ -82,6 +82,8 @@ def run_condition(
     root: Path,
     model_dir: Path,
     threads: int,
+    *,
+    should_yield: Callable[[], bool] | None = None,
 ) -> None:
     filename, revision = MODELS[condition.checkpoint]
     runtime = f"llama.cpp:{LLAMA_REVISION}:ggml-org:{filename}:{revision}"
@@ -104,6 +106,8 @@ def run_condition(
         error = c.create_string_buffer(512)
         logits = (c.c_float * len(labels))()
         for item in todo:
+            if should_yield is not None and should_yield():
+                return
             ids, length = tokenize(lib, handle, item.text)
             score = item.answer is not None
             status = lib.lm_forward(
