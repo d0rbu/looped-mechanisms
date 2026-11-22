@@ -4,9 +4,7 @@
   const get = (id) => document.getElementById(`study-${id}`);
   const root = "loop-study/v1";
   const names = {random: "Random projection", pca: "PCA", tsne: "t-SNE", umap: "UMAP", lda: "LDA"};
-  const colors = ["#126e4b", "#ad3e31", "#2b68ac", "#943f96", "#805309", "#26838d", "#d04985", "#454495",
-    "#5e741c", "#b65c2b", "#655350", "#9063a9", "#0080ad", "#844146", "#337d2d", "#30383f"];
-  const accuracyColors = ["#176b51", "#a7501b"];
+  const accuracyColors = ["#176b51", "#a7501b", "#28659d", "#893b79"];
   const scoreRequests = new Map();
   let comparison = [];
   let catalog, report, projection;
@@ -139,13 +137,6 @@
     const layer = Number(get("layer").value);
     const stats = report.layers.find((row) => row.layer === layer);
     get("accuracy").textContent = `Layer ${layer} · ${percent(stats.accuracy)} accuracy · ${report.head_dim}-output linear head · ${percent(1 / report.head_dim)} chance. Trained on ${report.train_prompts} prompts and validated on ${report.validation_prompts} separate prompts, with four token positions per loop.`;
-    get("scores").replaceChildren(...report.layers.map((score) => {
-      const row = node("tr");
-      row.dataset.selected = score.layer === layer;
-      row.append(...[score.layer, percent(score.accuracy), `${score.correct.toLocaleString()} / ${score.examples.toLocaleString()}`]
-        .map((value) => node("td", value)));
-      return row;
-    }));
     const header = node("tr");
     header.append(node("th", "Actual ↓ / Predicted →"),
       ...stats.confusion.map((_, loop) => node("th", loop)));
@@ -167,7 +158,7 @@
       button.type = "button";
       button.setAttribute("aria-pressed", !hiddenLoops.has(loop));
       const dot = node("span");
-      dot.style.setProperty("--loop-color", colors[loop]);
+      dot.style.setProperty("--loop-color", loopColor(loop, projection.loops));
       dot.setAttribute("aria-hidden", "true");
       button.append(dot, `Loop ${loop}`);
       button.addEventListener("click", () => {
@@ -217,7 +208,7 @@
       const y = bottom - 9 - (point[1] - y0) / dy * (bottom - top - 18);
       const item = projection.items[Math.floor(index / projection.loops)];
       plotted.push({x, y, loop, item});
-      ctx.fillStyle = colors[loop];
+      ctx.fillStyle = loopColor(loop, projection.loops);
       ctx.beginPath();
       ctx.arc(x, y, 2.8, 0, 2 * Math.PI);
       ctx.fill();

@@ -12,7 +12,12 @@ from looped_mechanisms.design import HIDDEN, LOCAL, NDIF, POSITIONS, Condition, 
 from looped_mechanisms.inputs import SEED, SOURCES, Item, load_items
 from looped_mechanisms.results import atomic_json, complete, result_dir
 
-RUNS = ((NDIF, Condition("fixed", 3)), (LOCAL, Condition("variable", 16)))
+RUNS = (
+    (NDIF, Condition("fixed", 3)),
+    (LOCAL, Condition("variable", 16)),
+    (NDIF, Condition("variable", 3)),
+    (LOCAL, Condition("variable", 3)),
+)
 METHODS = ("random", "pca", "tsne", "umap", "lda")
 VALIDATION_PER_SOURCE = 16
 
@@ -154,27 +159,37 @@ def run(
         print(f"{backend}/{condition.name} layer {layer}: {scores[-1]['accuracy']:.3%}", flush=True)
 
 
+def publish_catalog(output: Path) -> None:
+    available = []
+    for backend, condition in RUNS:
+        directory = output / backend / condition.name
+        scores_path = directory / "scores.json"
+        if scores_path.is_file() and len(json.loads(scores_path.read_text())["layers"]) == 12:
+            available.append({"backend": backend, "id": condition.name, **asdict(condition)})
+    atomic_json(
+        output / "index.json",
+        {
+            "runs": available,
+            "methods": METHODS,
+        },
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--cohort", type=Path, default=Path("data/cohort"))
     parser.add_argument("--artifacts", type=Path, default=Path("artifacts"))
     parser.add_argument("--output", type=Path, default=Path("site/loop-study/v1"))
     parser.add_argument("--heads", type=Path, default=Path("artifacts/loop-heads"))
+    runs = {f"{backend}/{condition.name}": (backend, condition) for backend, condition in RUNS}
+    parser.add_argument("--run", choices=runs)
     args = parser.parse_args()
     items = load_items(args.cohort)
     args.output.mkdir(parents=True, exist_ok=True)
-    atomic_json(
-        args.output / "index.json",
-        {
-            "runs": [
-                {"backend": backend, "id": condition.name, **asdict(condition)}
-                for backend, condition in RUNS
-            ],
-            "methods": METHODS,
-        },
-    )
-    for backend, condition in RUNS:
+    selected = [runs[args.run]] if args.run else RUNS
+    for backend, condition in selected:
         run(args.artifacts, args.output, args.heads, backend, condition, items)
+    publish_catalog(args.output)
 
 
 if __name__ == "__main__":

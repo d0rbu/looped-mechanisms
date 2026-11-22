@@ -32,10 +32,6 @@
     return `${root}/${condition.backend}/${condition.id}`;
   }
 
-  const gaussianColors = [
-    "#176b51", "#276aa2", "#a04a20", "#96408b", "#5f6718", "#ab2856", "#078183", "#6952b7",
-    "#834c26", "#577540", "#323b83", "#ad5627", "#80364f", "#227591", "#6b5493", "#2f5031",
-  ];
   let gaussianChart = null;
 
   function renderGaussianity() {
@@ -47,7 +43,7 @@
       if (loop !== "all" && visit.loop !== null && visit.loop !== Number(loop)) continue;
       const key = visit.loop ?? (visit.layer < 6 ? "prelude" : "final");
       if (!series.has(key)) {
-        const color = typeof key === "number" ? gaussianColors[key % gaussianColors.length] : "#374e47";
+        const color = typeof key === "number" ? loopColor(key, state.condition.passes) : "#374e47";
         series.set(key, {color, visits: []});
       }
       series.get(key).visits.push(visit);
