@@ -5,6 +5,7 @@ import hashlib
 import importlib
 import json
 from codecs import getincrementaldecoder
+from collections.abc import Iterator
 from dataclasses import asdict
 from itertools import combinations
 from pathlib import Path
@@ -127,6 +128,80 @@ def top_neighbors(xp: ModuleType, squared: NDArray[Any]) -> NDArray[Any]:
     return result
 
 
+def squared_distances(
+    a: NDArray[Any],
+    b: NDArray[Any],
+    norms_a: NDArray[Any],
+    norms_b: NDArray[Any],
+    excluded: NDArray[Any],
+) -> NDArray[Any]:
+    squared = a @ b.T
+    squared *= -2
+    squared += norms_a[:, None]
+    squared += norms_b[None, :]
+    squared[excluded] = np.inf
+    return squared
+
+
+def distance_references(
+    xp: ModuleType, states: NDArray[Any], excluded: NDArray[Any], cross_nearest: NDArray[Any]
+) -> tuple[list[float], list[list[float]]]:
+    passes, count, hidden = states.shape
+    to_host = np.asarray if xp is np else xp.asnumpy
+    nearest = np.array(cross_nearest, copy=True)
+    within = []
+    for loop, values in enumerate(states):
+        norms = xp.sum(values**2, axis=1)
+        squared = squared_distances(values, values, norms, norms, excluded)
+        distances = xp.sqrt(xp.maximum(xp.min(squared, axis=1), 0) / HIDDEN)
+        nearest[loop, loop] = to_host(distances)
+        within.append(round(float(nearest[loop, loop].mean(dtype=np.float64)), 6))
+
+    # Each prompt contributes the same four query positions to each loop.
+    grouped = states.reshape(passes, -1, POSITIONS, hidden).transpose(1, 0, 2, 3)
+    grouped = grouped.reshape(-1, passes * POSITIONS, hidden)
+    norms = xp.sum(grouped**2, axis=2)
+    squared = grouped @ grouped.transpose(0, 2, 1)
+    squared *= -2
+    squared += norms[:, :, None]
+    squared += norms[:, None, :]
+    self_index = xp.arange(passes * POSITIONS)
+    squared[:, self_index, self_index] = xp.inf
+    squared = squared.reshape(-1, passes, POSITIONS, passes, POSITIONS).min(axis=-1)
+    same = xp.sqrt(xp.maximum(squared, 0) / HIDDEN)
+    same = same.transpose(1, 3, 0, 2).reshape(passes, passes, count)
+    inclusive = np.minimum(nearest, to_host(same)).mean(axis=2, dtype=np.float64)
+    return within, np.round(inclusive, 6).tolist()
+
+
+def saved_cross_neighbors(
+    directory: Path, layer: str, passes: int, count: int
+) -> NDArray[np.float32]:
+    nearest = np.zeros((passes, passes, count), dtype=np.float32)
+    if passes > 1:
+        for source in range(passes):
+            targets = [target for target in range(passes) if target != source]
+            records = np.fromfile(directory / f"{layer}-{source}.bin", dtype=RECORD)
+            nearest[source, targets] = records.reshape(passes - 1, count, NEIGHBORS)["distance"][
+                :, :, 0
+            ]
+    return nearest
+
+
+def core_layer_states(
+    xp: ModuleType, vectors: NDArray[np.float16], condition: Condition
+) -> Iterator[tuple[str, NDArray[Any]]]:
+    layout = visits(condition)
+    for layer in range(6, 18):
+        indices = [i for i, visit in enumerate(layout) if visit.layer == layer]
+        yield str(layer), xp.asarray(vectors[indices], dtype=xp.float32)
+
+
+def same_prompt(xp: ModuleType, count: int) -> NDArray[Any]:
+    samples = xp.arange(count) // POSITIONS
+    return samples[:, None] == samples[None, :]
+
+
 def layer_neighbors(
     xp: ModuleType, states: NDArray[Any], excluded: NDArray[Any]
 ) -> tuple[NDArray[Any], NDArray[Any]]:
@@ -135,11 +210,9 @@ def layer_neighbors(
     means = np.full((passes, passes), np.nan)
     squared_norms = xp.sum(states**2, axis=2)
     for source, target in combinations(range(passes), 2):
-        squared = states[source] @ states[target].T
-        squared *= -2
-        squared += squared_norms[source, :, None]
-        squared += squared_norms[target, None, :]
-        squared[excluded] = xp.inf
+        squared = squared_distances(
+            states[source], states[target], squared_norms[source], squared_norms[target], excluded
+        )
         results[target, source] = top_neighbors(xp, squared.T.copy())
         results[source, target] = top_neighbors(xp, squared)
         for a, b in ((source, target), (target, source)):
@@ -172,26 +245,29 @@ def build_condition(
         for visit, values in zip(layout, vectors, strict=True)
     ]
     means = {}
-    if condition.passes > 1:
-        sample = xp.arange(count) // POSITIONS
-        excluded = sample[:, None] == sample[None, :]
-        for layer in range(6, 18):
-            indices = [i for i, visit in enumerate(layout) if visit.layer == layer]
-            states = xp.asarray(vectors[indices], dtype=xp.float32)
-            neighbors, distances = layer_neighbors(xp, states, excluded)
-            for source in range(condition.passes):
-                targets = [target for target in range(condition.passes) if source != target]
-                path = directory / f"{layer}-{source}.bin"
-                temp = path.with_suffix(".tmp")
-                neighbors[source, targets].tofile(temp)
-                temp.replace(path)
-            means[str(layer)] = [
-                [
-                    None if source == target else round(float(value), 6)
-                    for target, value in enumerate(row)
-                ]
-                for source, row in enumerate(distances)
+    within = {}
+    inclusive = {}
+    excluded = same_prompt(xp, count)
+    for layer, states in core_layer_states(xp, vectors, condition):
+        neighbors, distances = layer_neighbors(xp, states, excluded)
+        within[layer], inclusive[layer] = distance_references(
+            xp, states, excluded, neighbors["distance"][:, :, :, 0]
+        )
+        if condition.passes == 1:
+            continue
+        for source in range(condition.passes):
+            targets = [target for target in range(condition.passes) if source != target]
+            path = directory / f"{layer}-{source}.bin"
+            temp = path.with_suffix(".tmp")
+            neighbors[source, targets].tofile(temp)
+            temp.replace(path)
+        means[layer] = [
+            [
+                None if source == target else round(float(value), 6)
+                for target, value in enumerate(row)
             ]
+            for source, row in enumerate(distances)
+        ]
     for example in examples:
         example["tokens"] = decode_tokens(example.pop("ids"), *vocabulary)
     atomic_json(directory / "examples.json", examples)
@@ -204,6 +280,8 @@ def build_condition(
             "qq_reference": round(baseline, 6),
             "gaussianity": statistics,
             "mean_distances": means,
+            "within_loop_distances": within,
+            "including_same_prompt": inclusive,
         },
     )
 
@@ -239,8 +317,35 @@ def main() -> None:
     for backend, condition in order:
         entry = {"backend": backend, "id": condition.name, **asdict(condition)}
         directory = args.output / backend / condition.name
-        if entry in catalog["conditions"] and (directory / "summary.json").exists():
-            print(f"{backend}/{condition.name}: already built", flush=True)
+        summary_path = directory / "summary.json"
+        if entry in catalog["conditions"] and summary_path.exists():
+            summary = json.loads(summary_path.read_text())
+            if "including_same_prompt" not in summary:
+                vectors, _ = load_condition(args.artifacts, backend, condition, items)
+                if vectors.shape[1] != summary["count"]:
+                    raise ValueError(
+                        f"Geometry cohort size mismatch for {backend}/{condition.name}"
+                    )
+                excluded = same_prompt(xp, vectors.shape[1])
+                within = {}
+                inclusive = {}
+                for layer, states in core_layer_states(xp, vectors, condition):
+                    cross_nearest = saved_cross_neighbors(
+                        directory, layer, condition.passes, vectors.shape[1]
+                    )
+                    within[layer], inclusive[layer] = distance_references(
+                        xp, states, excluded, cross_nearest
+                    )
+                summary["within_loop_distances"] = within
+                summary["including_same_prompt"] = inclusive
+                atomic_json(summary_path, summary)
+                del vectors
+                print(
+                    f"{backend}/{condition.name}: added diagonal and same-prompt comparisons",
+                    flush=True,
+                )
+            else:
+                print(f"{backend}/{condition.name}: already built", flush=True)
             continue
         vectors, examples = load_condition(args.artifacts, backend, condition, items)
         build_condition(xp, vectors, condition, examples, directory, vocab)

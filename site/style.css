@@ -79,3 +79,6 @@ footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1
 .study-legend span { display: inline-block; width: 8px; height: 8px; margin-right: 4px; border-radius: 50%; background: var(--loop-color); }
 #study-distill-rows tr[data-training-layer="true"] { background: #edf3ee; font-weight: 650; }
 #study-confusion td, #study-confusion th { text-align: center; min-width: 42px; }
+
+#geometry-distances td.within-loop { background: #e2ece5; font-weight: 700; }
+.geometry-checkbox { display: flex; align-items: center; gap: 5px; padding-block: 8px; }

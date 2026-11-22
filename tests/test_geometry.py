@@ -5,7 +5,13 @@ from statistics import NormalDist
 import numpy as np
 
 from looped_mechanisms.design import HIDDEN
-from looped_mechanisms.geometry import NEIGHBORS, gaussianity, layer_neighbors
+from looped_mechanisms.geometry import (
+    NEIGHBORS,
+    distance_references,
+    gaussianity,
+    layer_neighbors,
+    same_prompt,
+)
 
 
 def test_cross_loop_neighbors_exclude_every_token_of_source_prompt() -> None:
@@ -32,6 +38,29 @@ def test_cross_loop_neighbors_exclude_every_token_of_source_prompt() -> None:
             np.testing.assert_array_equal(results[source, target]["index"], closest)
             np.testing.assert_allclose(results[source, target]["distance"], expected, atol=1e-7)
             np.testing.assert_allclose(means[source, target], expected[:, 0].mean(), atol=1e-7)
+
+
+def test_references_support_both_prompt_rules_without_self_matches() -> None:
+    rng = np.random.default_rng(17)
+    states = rng.standard_normal((3, 12, 6)).astype(np.float32)
+    excluded = same_prompt(np, states.shape[1])
+    neighbors, _ = layer_neighbors(np, states, excluded)
+    within, inclusive = distance_references(np, states, excluded, neighbors["distance"][:, :, :, 0])
+
+    for source in range(3):
+        for target in range(3):
+            distances = np.linalg.norm(
+                states[source, :, None].astype(np.float64) - states[target, None], axis=-1
+            ) / np.sqrt(HIDDEN)
+            if source == target:
+                other_prompts = np.where(excluded, np.inf, distances)
+                np.testing.assert_allclose(
+                    within[source], other_prompts.min(axis=1).mean(), atol=5.1e-7
+                )
+                np.fill_diagonal(distances, np.inf)
+            np.testing.assert_allclose(
+                inclusive[source][target], distances.min(axis=1).mean(), atol=5.1e-7
+            )
 
 
 def test_gaussianity_detects_non_normal_activations() -> None:

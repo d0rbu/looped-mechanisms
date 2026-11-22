@@ -167,7 +167,14 @@
   }
 
   function renderDistances() {
-    const distances = state.summary.mean_distances[get("layer").value];
+    const layer = get("layer").value;
+    const inclusive = state.summary.including_same_prompt?.[layer];
+    const include = get("include-prompt");
+    include.disabled = !inclusive;
+    const distances = include.checked && inclusive ? inclusive : state.summary.mean_distances[layer];
+    const within = include.checked && inclusive
+      ? inclusive.map((row, loop) => row[loop])
+      : state.summary.within_loop_distances?.[layer];
     const head = node("thead");
     const labels = node("tr");
     labels.append(node("th", "Source ↓ / Target →"),
@@ -181,10 +188,16 @@
       row.append(label);
       for (const [target, distance] of values.entries()) {
         const cell = node("td");
-        cell.textContent = distance === null ? "—" : distance.toFixed(3);
+        if (source === target) {
+          cell.className = "within-loop";
+          cell.title = "Mean nearest-neighbor distance within this loop";
+          cell.textContent = within?.[target]?.toFixed(3) ?? "—";
+        } else {
+          cell.textContent = distance.toFixed(3);
+        }
         row.append(cell);
       }
-      const valid = values.filter((distance) => distance !== null);
+      const valid = values.filter((_, target) => source !== target);
       row.append(node("td", (valid.reduce((sum, distance) => sum + distance, 0) / valid.length).toFixed(3)));
       body.append(row);
     }
@@ -264,5 +277,6 @@
   get("gaussian-chart").closest("details").addEventListener("toggle", drawGaussianity);
   window.addEventListener("resize", drawGaussianity);
   get("layer").addEventListener("change", renderDistances);
+  get("include-prompt").addEventListener("change", renderDistances);
   start();
 })();

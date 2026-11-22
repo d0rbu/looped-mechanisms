@@ -85,10 +85,14 @@ measures marginal tail departure over nonconstant hidden coordinates.
 
 For physical layers 6–17, each directed source/target loop pair has one
 nearest-neighbor search per captured source token. Candidates come from all
-captured tokens at the same physical layer in the target loop, excluding
-the entire source prompt. Distances are Euclidean divided by the square
+captured tokens at the same physical layer in the target loop. The default
+excludes the entire source prompt. The checkbox admits all captured
+positions from that prompt, excluding an observation’s match to itself in
+the same loop. Distances are Euclidean divided by the square
 root of the hidden width. The displayed pair average uses the nearest
-candidate for each source token. The row mean averages over all other loops.
+candidate for each source token. The highlighted diagonal uses the same
+search within a single loop, using the same candidate rule. The row mean
+averages over all other loops.
 The table displays zero-based loop indices. Raw activation tensors remain in
 the artifact directory.
 
