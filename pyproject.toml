@@ -79,6 +79,7 @@ target-version = "py313"
 extend-exclude = [".venv", "dist", "build", "out", "outputs", "logs", ".agents"]
 
 [tool.ruff.lint]
+external = ["V105"] # PyTorch invokes the student forward method through Module.__call__.
 select = [
     "E",   # pycodestyle errors
     "F",   # pyflakes

@@ -19,7 +19,7 @@ python -m http.server 45717 --bind 127.0.0.1 --directory site
 ```
 
 Follow the [study protocol](docs/pipelines/inkling-study.md) to configure NDIF
-and build the local runner. The dashboard shows benchmark accuracy, activation Gaussianity, and cross-loop neighbor examples. Benchmark plots read aggregate statistics
+and build the local runner. The dashboard shows benchmark accuracy, activation Gaussianity, cross-loop distances, loop classifiers, activation projections, and layer distillation. Benchmark plots read aggregate statistics
 from `site/results.json`. Raw vectors and item scores are stored under
 `artifacts/`, with input lineage under `data/cohort/`.
 
