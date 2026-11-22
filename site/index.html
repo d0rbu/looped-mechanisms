@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f7f2">
   <title>Looped Mechanisms · Inkling 2 Mini</title>
-  <link rel="stylesheet" href="style.css?v=9">
+  <link rel="stylesheet" href="style.css?v=11">
   <script defer src="app.js?v=2"></script>
   <script defer src="plot-colors.js"></script>
-  <script defer src="geometry.js?v=8"></script>
+  <script defer src="geometry.js?v=10"></script>
   <script defer src="study.js?v=5"></script>
 </head>
 <body>
@@ -89,9 +89,10 @@
         </details>
         <div class="geometry-block" id="geometry-neighbor">
           <h3>Cross-loop nearest-neighbor distances</h3>
-          <p class="geometry-note">Each cell averages the closest target distance across captured source tokens. Distance is Euclidean divided by √2,304. Candidates from the same prompt are excluded.</p>
+          <p class="geometry-note">Each cell averages the closest target distance across captured source tokens. Distance is Euclidean divided by √2,304. Shaded diagonal cells show the within-loop reference, with each token excluded from its own candidate set. The Mean column averages across other loops.</p>
           <div class="geometry-controls">
             <div class="field"><label for="geometry-layer">Recurrent layer</label><select id="geometry-layer"></select></div>
+            <label class="geometry-checkbox"><input type="checkbox" id="geometry-include-prompt"> Include candidates from the same prompt</label>
           </div>
           <div class="table-wrap"><table id="geometry-distances" aria-label="Average nearest-neighbor distances by source and target loop"></table></div>
         </div>
