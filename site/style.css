@@ -70,6 +70,8 @@ footer { display: flex; justify-content: space-between; gap: 12px; border-top: 1
 #geometry-distances th, #geometry-distances td { text-align: center; white-space: nowrap; padding: 4px; }
 #loop-study h3 { margin: 18px 0 0; font-size: 1rem; }
 #loop-study details { margin-top: 12px; }
+#study-accuracy-plot { display: block; width: 100%; height: 235px; }
+#study-accuracy-legend { color: var(--muted); font-size: .84rem; margin: 8px 0 2px; gap: 5px 16px; }
 #study-plot { display: block; width: 100%; height: 380px; }
 .study-legend { display: flex; flex-wrap: wrap; gap: 5px 8px; }
 .study-legend button { background: var(--surface); border: 1px solid var(--line); border-radius: 4px; color: var(--ink); padding: 3px 7px; cursor: pointer; font: inherit; font-size: .77rem; }

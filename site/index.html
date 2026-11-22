@@ -5,10 +5,10 @@
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <meta name="theme-color" content="#f7f7f2">
   <title>Looped Mechanisms · Inkling 2 Mini</title>
-  <link rel="stylesheet" href="style.css?v=7">
+  <link rel="stylesheet" href="style.css?v=8">
   <script defer src="app.js?v=2"></script>
   <script defer src="geometry.js?v=7"></script>
-  <script defer src="study.js?v=2"></script>
+  <script defer src="study.js?v=3"></script>
 </head>
 <body>
   <header class="topbar">
@@ -106,7 +106,12 @@
       </div>
       <p id="study-status" class="geometry-note" role="status">Loading loop study…</p>
       <div id="study-content" hidden>
-        <h3>Validation accuracy</h3>
+        <h3>Validation accuracy by recurrent layer</h3>
+        <div id="study-accuracy-comparison" hidden>
+          <div id="study-accuracy-legend" class="study-legend"></div>
+          <canvas id="study-accuracy-plot" aria-label="Loop classification validation accuracy by model and recurrent layer" role="img"></canvas>
+          <p id="study-accuracy-layer" class="geometry-note"></p>
+        </div>
         <p id="study-accuracy" class="geometry-note"></p>
         <details>
           <summary>Accuracy by recurrent layer</summary>

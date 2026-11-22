@@ -6,6 +6,9 @@
   const names = {random: "Random projection", pca: "PCA", tsne: "t-SNE", umap: "UMAP", lda: "LDA"};
   const colors = ["#126e4b", "#ad3e31", "#2b68ac", "#943f96", "#805309", "#26838d", "#d04985", "#454495",
     "#5e741c", "#b65c2b", "#655350", "#9063a9", "#0080ad", "#844146", "#337d2d", "#30383f"];
+  const accuracyColors = ["#176b51", "#a7501b"];
+  const scoreRequests = new Map();
+  let comparison = [];
   let catalog, report, projection;
   let conditionVersion = 0, projectionVersion = 0;
   let plotted = [];
@@ -36,12 +39,102 @@
     return `${backend} · ${checkpoint} · ${run.passes} passes`;
   }
 
-  function selectedPath() {
-    const run = catalog.runs[Number(get("condition").value)];
+  function runPath(run) {
     return `${run.backend}/${run.id}`;
   }
 
+  function selectedRun() {
+    return catalog.runs[Number(get("condition").value)];
+  }
+
+  function scoresFor(run) {
+    const path = runPath(run);
+    if (!scoreRequests.has(path)) {
+      scoreRequests.set(path, json(`${path}/scores.json`).catch((error) => {
+        scoreRequests.delete(path);
+        throw error;
+      }));
+    }
+    return scoreRequests.get(path);
+  }
+
   const percent = (fraction) => `${(fraction * 100).toFixed(1)}%`;
+  async function loadComparison() {
+    const loaded = await Promise.allSettled(catalog.runs.map(async (run, index) => ({
+      run, data: await scoresFor(run), color: accuracyColors[index % accuracyColors.length],
+    })));
+    comparison = loaded.flatMap((entry) => entry.status === "fulfilled" ? [entry.value] : []);
+    if (!comparison.length) return;
+    get("accuracy-legend").replaceChildren(...comparison.map(({run, data, color}) => {
+      const labelNode = node("div");
+      const dot = node("span");
+      dot.style.setProperty("--loop-color", color);
+      dot.setAttribute("aria-hidden", "true");
+      labelNode.append(dot, `${label(run)} (${percent(1 / data.head_dim)} chance)`);
+      return labelNode;
+    }));
+    get("accuracy-comparison").hidden = false;
+    drawAccuracy();
+  }
+
+  function drawAccuracy() {
+    if (!comparison.length) return;
+    const canvas = get("accuracy-plot");
+    const width = canvas.clientWidth, height = canvas.clientHeight;
+    if (!width) return;
+    const ratio = window.devicePixelRatio || 1;
+    canvas.width = Math.round(width * ratio);
+    canvas.height = Math.round(height * ratio);
+    const ctx = canvas.getContext("2d");
+    ctx.scale(ratio, ratio);
+    const left = 47, right = width - 16, top = 15, bottom = height - 40;
+    const first = 6, last = 17;
+    const x = (layer) => left + (layer - first) / (last - first) * (right - left);
+    const y = (score) => bottom - score * (bottom - top);
+    const selected = Number(get("layer").value) || first;
+    ctx.font = "11px system-ui";
+    ctx.fillStyle = "#4b625b";
+    ctx.strokeStyle = "#d6dfd7";
+    ctx.textAlign = "right";
+    for (const tick of [0, 0.25, 0.5, 0.75, 1]) {
+      ctx.beginPath();
+      ctx.moveTo(left, y(tick));
+      ctx.lineTo(right, y(tick));
+      ctx.stroke();
+      ctx.fillText(`${tick * 100}%`, left - 7, y(tick) + 4);
+    }
+    ctx.textAlign = "center";
+    for (let layer = first; layer <= last; layer++) {
+      ctx.fillText(layer, x(layer), bottom + 16);
+    }
+    ctx.fillText("Recurrent layer", (left + right) / 2, height - 6);
+    ctx.beginPath();
+    ctx.moveTo(x(selected), top);
+    ctx.lineTo(x(selected), bottom);
+    ctx.setLineDash([3, 3]);
+    ctx.strokeStyle = "#83958c";
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    for (const {data, color} of comparison) {
+      ctx.strokeStyle = ctx.fillStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      for (const row of data.layers) ctx.lineTo(x(row.layer), y(row.accuracy));
+      ctx.stroke();
+      for (const row of data.layers) {
+        ctx.beginPath();
+        ctx.arc(x(row.layer), y(row.accuracy), row.layer === selected ? 4.5 : 3, 0, 2 * Math.PI);
+        ctx.fill();
+      }
+    }
+    const values = comparison.flatMap(({run, data}) => {
+      const row = data.layers.find(({layer}) => layer === selected);
+      return row ? [`${label(run)} ${percent(row.accuracy)}`] : [];
+    });
+    get("accuracy-layer").textContent = `Layer ${selected} · ${values.join(" | ")}`;
+  }
+
   function renderScores() {
     const layer = Number(get("layer").value);
     const stats = report.layers.find((row) => row.layer === layer);
@@ -65,6 +158,7 @@
       return row;
     }));
     get("confusion").replaceChildren(head, body);
+    drawAccuracy();
   }
 
   function renderLegend() {
@@ -139,7 +233,7 @@
     const version = ++projectionVersion;
     try {
       const layer = get("layer").value;
-      const data = await json(`${selectedPath()}/layer-${layer.padStart(2, "0")}.json`);
+      const data = await json(`${runPath(selectedRun())}/layer-${layer.padStart(2, "0")}.json`);
       if (version !== projectionVersion) return;
       projection = data;
       get("status").hidden = true;
@@ -157,7 +251,7 @@
     const version = ++conditionVersion;
     ++projectionVersion;
     try {
-      const data = await json(`${selectedPath()}/scores.json`);
+      const data = await scoresFor(selectedRun());
       if (version !== conditionVersion) return;
       report = data;
       hiddenLoops = new Set();
@@ -202,7 +296,7 @@
       options("method", catalog.methods.map((method) => [method, names[method]]));
       get("method").value = "pca";
       get("condition").disabled = false;
-      await selectCondition();
+      await Promise.all([selectCondition(), loadComparison()]);
     } catch (error) {
       get("status").textContent = "Loop study data is temporarily unavailable.";
       console.error(error);
@@ -227,6 +321,7 @@
       : "Hover over a point to see its dataset and loop.";
   });
   window.addEventListener("resize", drawProjection);
+  window.addEventListener("resize", drawAccuracy);
   start();
   loadDistillation();
 })();
