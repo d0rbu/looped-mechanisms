@@ -1,5 +1,7 @@
 """Run matched fixed and variable-loop conditions using llama.cpp and GGUF."""
 
+from __future__ import annotations
+
 import argparse
 import ctypes as c
 import hashlib
