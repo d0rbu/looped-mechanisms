@@ -273,11 +273,10 @@
     li.append(link, ` · row ${sample.row} · token ${token + 1} · distance ${distance.toFixed(4)}`);
     const context = node("div");
     context.className = "token-snippet";
-    const contextTokens = 32;
-    const start = Math.max(0, token - contextTokens);
-    const end = Math.min(sample.tokens.length, token + contextTokens + 1);
+    const followingTokens = 32;
+    const end = Math.min(sample.tokens.length, token + followingTokens + 1);
     context.append(
-      (start ? "… " : "") + sample.tokens.slice(start, token).join(""),
+      sample.tokens.slice(0, token).join(""),
       node("mark", sample.tokens[token] || "◌"),
       sample.tokens.slice(token + 1, end).join("") + (end < sample.tokens.length ? " …" : ""),
     );

@@ -90,9 +90,9 @@ the entire source prompt. Distances are Euclidean divided by the square
 root of the hidden width. The displayed pair average uses the nearest
 candidate for each source token. The row mean averages over all other loops.
 Select a distance matrix cell to choose a source and target loop. The
-explorer shows three ranked matches from the frozen cohort, each with up to
-32 tokens of context on either side. Hover and keyboard focus are available
-on the four recorded source tokens. The display uses zero-based loop indices.
+explorer shows three ranked matches from the frozen cohort, each with the
+full sequence prefix and up to 32 following tokens. Hover and keyboard focus
+are available on the four recorded source tokens. The display uses zero-based loop indices.
 
 Build the public summaries and neighbor indexes from local artifacts and
 the pinned tokenizer JSON shared by both checkpoints. The indexes contain
