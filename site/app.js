@@ -11,10 +11,9 @@ function optionList(id, options) {
   if (options.some(([value]) => value === previous)) select.value = previous;
 }
 
-function element(tag, text, className) {
+function element(tag, text) {
   const node = document.createElement(tag);
   node.textContent = text;
-  if (className) node.className = className;
   return node;
 }
 
@@ -129,56 +128,6 @@ function renderBenchmark(conditions) {
   drawChart();
 }
 
-function renderActivations(conditions) {
-  const selected = conditions.find((condition) => condition.id === $("condition").value);
-  const stats = selected.sources[$("dataset").value];
-  const metric = $("metric").value;
-  const show = stats.count > 0 && stats[metric].some((value) => value !== null);
-  $("map-area").hidden = !show;
-  $("activation-empty").hidden = show;
-  $("activation-empty").textContent = stats.count
-    ? "Cosine needs two visits to the same physical layer. Choose a condition with two or more passes."
-    : "Verified layer visits will appear here as traces finish.";
-  if (!show) return;
-  const mapped = stats[metric].map((value) => value === null ? null : (metric === "rms" ? Math.log1p(value) : value));
-  const usable = mapped.filter((value) => value !== null);
-  const max = metric === "rms" ? Math.max(...usable) : 1;
-  const min = metric === "rms" ? 0 : -1;
-  $("map-meta").textContent = `${stats.count} of ${data.target_per_source} items · ${selected.visits.length} visits per item · ${metric === "rms" ? "Log color scale (higher RMS is darker)" : "Cosine −1 to +1 (closer to +1 is darker)"}`;
-  const grid = $("map");
-  grid.replaceChildren(element("span", "Layer", "row-label"));
-  for (let layer = 6; layer <= 17; layer++) grid.append(element("span", layer, "axis"));
-  $("cell-value").textContent = "Select a cell to inspect the value.";
-  const ranges = [
-    ["Prelude", selected.visits.map((v, i) => v.layer < 6 ? i : null).filter((i) => i !== null)],
-    ...Array.from({length: selected.passes}, (_, pass) => [
-      `Pass ${pass + 1}`, Array.from({length: 12}, (_, layer) => 6 + pass * 12 + layer),
-    ]),
-    ["Final", selected.visits.map((v, i) => v.layer >= 18 ? i : null).filter((i) => i !== null)],
-  ];
-  for (const [label, indices] of ranges) {
-    grid.append(element("span", label, "row-label"));
-    for (let column = 0; column < 12; column++) {
-      const i = indices[column];
-      if (i === undefined || mapped[i] === null) {
-        grid.append(element("span", "", "blank"));
-        continue;
-      }
-      const visit = selected.visits[i];
-      const value = stats[metric][i].toFixed(4);
-      const detail = `${label} · layer ${visit.layer} · ${metric === "rms" ? "RMS" : "cosine"} ${value}`;
-      const fraction = (mapped[i] - min) / (max - min || 1);
-      const cell = element("button", visit.pass_number === null ? visit.layer : "", "cell");
-      cell.type = "button";
-      cell.style.setProperty("--cell", `hsl(158 40% ${96 - 67 * fraction}%)`);
-      cell.title = detail;
-      cell.setAttribute("aria-label", detail);
-      cell.addEventListener("click", () => { $("cell-value").textContent = detail; });
-      grid.append(cell);
-    }
-  }
-}
-
 function render() {
   if (!data) return;
   const backend = $("backend").value;
@@ -190,10 +139,7 @@ function render() {
   $("runtime-note").textContent = backend === "ndif"
     ? "Hosted deployments run at three passes."
     : "Fixed three-pass baseline and variable passes 1–16. Quantization: IQ4_NL.";
-  optionList("condition", conditions.slice().sort((a, b) => a.checkpoint.localeCompare(b.checkpoint) || a.passes - b.passes)
-    .map((arm) => [arm.id, `${checkpointName(arm)} · ${arm.passes} ${arm.passes === 1 ? "pass" : "passes"}`]));
   renderBenchmark(conditions);
-  renderActivations(conditions);
   $("updated").dateTime = data.generated_at;
   $("updated").textContent = `Updated ${new Date(data.generated_at).toLocaleString()}`;
 }
@@ -205,17 +151,8 @@ async function refresh() {
     const initial = !data;
     data = await response.json();
     if (initial) {
-      const sources = data.sources.map((source) => [source.name, source.name]);
-      optionList("dataset", sources);
-      $("dataset").value = "ARC-Challenge";
-      optionList("benchmark", data.sources.filter((source) => source.category === "Benchmark").map((source) => [source.name, source.name]));
-      $("source-list").replaceChildren(...data.sources.map((source) => {
-        const item = element("li", "");
-        const link = element("a", source.name);
-        link.href = `https://huggingface.co/datasets/${source.repo}/tree/${source.revision}`;
-        item.append(link);
-        return item;
-      }));
+      const benchmarks = data.sources.filter((source) => source.category === "Benchmark");
+      optionList("benchmark", benchmarks.map((source) => [source.name, source.name]));
     }
     render();
   } catch {
@@ -223,7 +160,7 @@ async function refresh() {
   }
 }
 
-for (const name of ["backend", "benchmark", "condition", "dataset", "metric"]) {
+for (const name of ["backend", "benchmark"]) {
   $(name).addEventListener("change", render);
 }
 window.addEventListener("resize", drawChart);
