@@ -3,6 +3,7 @@
 import argparse
 import hashlib
 import math
+from dataclasses import replace
 from pathlib import Path
 
 import numpy as np
@@ -19,7 +20,7 @@ from looped_mechanisms.distill import (
 )
 from looped_mechanisms.inputs import SEED
 from looped_mechanisms.stream_capture import STUDENTS, load_shard
-from looped_mechanisms.stream_corpus import DATASET, MILESTONES, REVISION
+from looped_mechanisms.stream_corpus import MILESTONES, REVISION
 
 
 def main() -> None:
@@ -27,11 +28,16 @@ def main() -> None:
     parser.add_argument("shard_file", type=Path)
     parser.add_argument("captures", type=Path)
     parser.add_argument("run_directory", type=Path)
+    parser.add_argument("--ordinal", type=int)
+    parser.add_argument("--save-snapshot", action="store_true")
+    parser.add_argument("--phase", choices=("pretrain", "sft"), default="pretrain")
     parser.add_argument("--layer", type=int, choices=STUDENTS, required=True)
     args = parser.parse_args()
-    shard = int(args.shard_file.stem)
+    shard = int(args.shard_file.stem) if args.ordinal is None else args.ordinal
     fingerprint = hashlib.sha256(args.shard_file.read_bytes()).hexdigest()
-    items, _, token_count = load_shard(args.shard_file)
+    items, _, masks, token_count = load_shard(args.shard_file)
+    if bool(masks) != (args.phase == "sft"):
+        raise ValueError("Assistant masks and training phase do not match")
     root = args.run_directory
     frontier = root / f"layer-{args.layer:02d}-frontier.pt"
     torch.manual_seed(SEED)
@@ -60,8 +66,13 @@ def main() -> None:
     if next_shard != shard:
         raise ValueError(f"Expected shard {next_shard:04d}, received {shard:04d}")
     paths = files_for(items, args.captures, list(STUDENTS))
-    examples = [read_sequence(path, args.layer, list(STUDENTS)) for path in paths]
-    if sum(example.length for example in examples) != token_count:
+    examples = []
+    for item, path in zip(items, paths, strict=True):
+        example = read_sequence(path, args.layer, list(STUDENTS))
+        if item.identifier in masks:
+            example = replace(example, target_mask=np.array(masks[item.identifier], dtype=bool))
+        examples.append(example)
+    if sum(example.training_tokens for example in examples) != token_count:
         raise ValueError("Captured tokens do not match this corpus shard")
     previous_history = checkpoint["history"] if checkpoint else []
     previous_prompts = checkpoint["train_prompts"] if checkpoint else 0
@@ -80,14 +91,14 @@ def main() -> None:
     if checkpoint:
         optimizer.load_state_dict(checkpoint["optimizer"])
         del checkpoint
-    copy_error += sum(
-        np.square(example.target.astype(np.float32) - example.active).sum(dtype=np.float64)
-        for example in examples
-    )
+    for example in examples:
+        delta = example.target.astype(np.float32) - example.active
+        supervised = delta if example.target_mask is None else delta[example.target_mask]
+        copy_error += np.square(supervised).sum(dtype=np.float64)
     student.train()
     history = train(student, examples, 1, 384, device, rate, optimizer=optimizer, seed=SEED + shard)
     del examples
-    combined = [*previous_history, {**history[0], "epoch": shard + 1}]
+    combined = [*previous_history, {**history[0], "epoch": shard + 1, "phase": args.phase}]
     total = sum(row["tokens"] for row in combined)
     metadata = {
         "width": STUDENT_WIDTH,
@@ -95,14 +106,16 @@ def main() -> None:
         "train_copy_rmse": math.sqrt(float(copy_error) / (total * HIDDEN)),
         "history": combined,
         "train_prompts": previous_prompts + len(items),
-        "training_corpus": DATASET,
+        "training_corpus": items[0].source,
         "revision": REVISION,
         "next_shard": shard + 1,
         "shard_hashes": [*consumed, fingerprint],
         "copy_error": float(copy_error),
     }
-    if total in MILESTONES:
-        snapshot = root / "checkpoints" / f"stream-{total:08d}-layer-{args.layer:02d}.pt"
+    if args.save_snapshot or (args.phase == "pretrain" and total in MILESTONES):
+        snapshot = (
+            root / "checkpoints" / f"stream-{args.phase}-{total:08d}-layer-{args.layer:02d}.pt"
+        )
         save_weights(snapshot, student, metadata, compact=True)
     save_weights(frontier, student, {**metadata, "optimizer": optimizer.state_dict()})
     print(

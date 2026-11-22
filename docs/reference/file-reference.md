@@ -72,6 +72,7 @@
 | `looped_mechanisms/layer_pairs.py` | NDIF decoder inputs and outputs for the distillation study |
 | `looped_mechanisms/distill.py` | Teacher-layer-sized student training and transfer evaluation |
 | `looped_mechanisms/stream_corpus.py` | Pinned tokenized corpus shards for larger distillation runs |
+| `looped_mechanisms/stream_sft.py` | Chat corpus shards with assistant-token supervision |
 | `looped_mechanisms/stream_capture.py` | Resume-safe NDIF capture for explicit token sequences |
 | `looped_mechanisms/stream_step.py` | Student and optimizer frontier updates for one teacher shard |
 | `looped_mechanisms/stream_campaign.py` | Bounded staging and evaluation milestones for the 10M-token run |

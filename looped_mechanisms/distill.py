@@ -71,10 +71,15 @@ class Sequence:
     active: NDArray[np.float16]
     blocks: NDArray[np.float16]
     target: NDArray[np.float16]
+    target_mask: NDArray[np.bool_] | None = None
 
     @property
     def length(self) -> int:
         return len(self.target)
+
+    @property
+    def training_tokens(self) -> int:
+        return self.length if self.target_mask is None else int(np.count_nonzero(self.target_mask))
 
 
 def read_sequence(path: Path, layer: int, captured_layers: list[int]) -> Sequence:
@@ -115,7 +120,7 @@ def batch_sequences(
         inputs[index, :tokens, 0] = example.active
         inputs[index, :tokens, 1 : 1 + example.blocks.shape[1]] = example.blocks
         target[index, :tokens] = example.target
-        mask[index, :tokens] = True
+        mask[index, :tokens] = True if example.target_mask is None else example.target_mask
     return (
         torch.from_numpy(inputs).to(device),
         torch.from_numpy(target).to(device),
@@ -193,7 +198,7 @@ def train(
     batches = groups(data, token_budget)
     if not batches:
         raise ValueError("Distillation requires training sequences")
-    epoch_tokens = sum(example.length for example in data)
+    epoch_tokens = sum(example.training_tokens for example in data)
     history = []
     for epoch in range(1, epochs + 1):
         epoch_error = 0.0
@@ -206,7 +211,7 @@ def train(
                 objective = F.mse_loss(predicted, targets[mask].float())
             objective.backward()
             optimizer.step()
-            tokens = sum(example.length for example in batch)
+            tokens = sum(example.training_tokens for example in batch)
             epoch_error += objective.item() * tokens
         rmse = math.sqrt(epoch_error / epoch_tokens)
         if not math.isfinite(rmse):

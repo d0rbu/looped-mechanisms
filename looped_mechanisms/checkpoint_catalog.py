@@ -7,7 +7,7 @@ from pathlib import Path
 from looped_mechanisms.results import atomic_json
 
 
-def publish_checkpoints(directory: Path) -> None:
+def publish_checkpoints(directory: Path, *, completed: bool = False) -> None:
     directory.mkdir(parents=True, exist_ok=True)
     entries = []
     for path in sorted(directory.glob("*.json")):
@@ -22,9 +22,10 @@ def publish_checkpoints(directory: Path) -> None:
                 "layer": report["train_layer"],
                 "tokens": sum(epoch["tokens"] for epoch in report["history"]),
                 "kind": "stream" if path.name.startswith("stream-") else "pilot",
+                "phase": report["history"][-1].get("phase", "pilot"),
             }
         )
-    atomic_json(directory / "index.json", {"checkpoints": entries})
+    atomic_json(directory / "index.json", {"checkpoints": entries, "completed": completed})
 
 
 def main() -> None:
