@@ -173,6 +173,7 @@ uv run --env-file .env --no-project --python "$teacher_python" -- python -m loop
 uv run --env-file .env --no-project --python "$teacher_python" -- python -m looped_mechanisms.large_loop_probe capture-hosted --checkpoint variable
 OMP_NUM_THREADS=6 "$torch_python" -m looped_mechanisms.probe_study --classifiers-only --extra-cohort data/loop-probe-16-expanded.json --extra-artifacts artifacts/loop-probe-16-expanded --run llama.cpp-iq4/variable-16 --run llama.cpp-iq4/variable-03 --run ndif/fixed-03 --run ndif/variable-03
 "$torch_python" -m looped_mechanisms.large_loop_probe prepare-supplement
+uv run --locked python -m looped_mechanisms.large_loop_probe prefit
 uv run --locked python -m looped_mechanisms.large_loop_probe capture --models "$models" --compact --count 25920
 "$cuda_python" -m looped_mechanisms.large_loop_probe train
 ```
