@@ -33,6 +33,7 @@ BASELINE = Path("data/cohort")
 COHORT = Path("data/loop-probe-16-expanded.json")
 SUPPLEMENT = Path("data/loop-probe-16-supplement.json")
 SFT_CORPUS = Path("data/distillation-sft-10m")
+PREFIT = Path("out/expanded-layer-6-prefit")
 CAPTURES = Path("artifacts/loop-probe-16-expanded")
 COMPACT_CAPTURES = Path("artifacts/loop-probe-16-layer-06")
 BASE_TRAIN_PROMPTS = 2_880
@@ -147,6 +148,62 @@ def prepare_supplement(cohort: Path, output: Path) -> None:
     raise ValueError(f"Only {len(selected):,} eligible supplemental SmolTalk prompts")
 
 
+def prompt_fingerprint(items: list[Item]) -> str:
+    return hashlib.sha256("".join(item.digest for item in items).encode()).hexdigest()
+
+
+def file_sha256(path: Path) -> str:
+    with path.open("rb") as stream:
+        return hashlib.file_digest(stream, "sha256").hexdigest()
+
+
+def prefit_shared_cohort(cohort: Path, destination: Path) -> None:
+    items = load_items(BASELINE)
+    held = validation_ids(items)
+    original = [item for item in items if item.identifier not in held]
+    val = [item for item in items if item.identifier in held]
+    extras = load_examples(cohort)
+    ordered = [*original, *extras, *val]
+    if len(original) + len(extras) != BASE_TRAIN_PROMPTS or len(val) != 96:
+        raise ValueError("Unexpected expanded classifier split")
+    destination.mkdir(parents=True, exist_ok=True)
+    temporary = destination / "activations.tmp.npy"
+    target = destination / "activations.npy"
+    shape = (len(ordered), MEASURED.passes, 1, POSITIONS, HIDDEN)
+    values = np.lib.format.open_memmap(temporary, mode="w+", dtype=np.float16, shape=shape)
+    load_core(
+        Path("artifacts"),
+        LOCAL,
+        MEASURED,
+        original,
+        layer=TARGET_LAYER,
+        out=values[: len(original)],
+    )
+    load_core(
+        CAPTURES,
+        LOCAL,
+        MEASURED,
+        extras,
+        layer=TARGET_LAYER,
+        out=values[len(original) : BASE_TRAIN_PROMPTS],
+    )
+    load_core(
+        Path("artifacts"), LOCAL, MEASURED, val, layer=TARGET_LAYER, out=values[BASE_TRAIN_PROMPTS:]
+    )
+    values.flush()
+    del values
+    temporary.replace(target)
+    atomic_json(
+        destination / "receipt.json",
+        {
+            "prompts_sha256": prompt_fingerprint(ordered),
+            "activations_sha256": file_sha256(target),
+            "layer": TARGET_LAYER,
+        },
+    )
+    print(f"Prepared {len(ordered):,} layer-6 sequences for the expanded classifier", flush=True)
+
+
 def train(
     cohort: Path,
     examples: list[Item],
@@ -155,6 +212,7 @@ def train(
     yield_to_distillation: bool = False,
     device_name: str = "cuda",
     report_path: Path = REPORT,
+    prefit: Path = PREFIT,
 ) -> None:
     base = load_items(BASELINE)
     held_out = validation_ids(base)
@@ -182,17 +240,46 @@ def train(
     artifact_root = Path("artifacts")
     loops = MEASURED.passes
     training = np.empty((TRAIN_PROMPTS, loops, 1, POSITIONS, HIDDEN), dtype=np.float16)
-    load_core(
-        artifact_root, LOCAL, MEASURED, original, layer=TARGET_LAYER, out=training[: len(original)]
-    )
-    load_core(
-        CAPTURES,
-        LOCAL,
-        MEASURED,
-        examples,
-        layer=TARGET_LAYER,
-        out=training[len(original) : BASE_TRAIN_PROMPTS],
-    )
+    cache = prefit / "receipt.json"
+    if cache.is_file():
+        provenance = json.loads(cache.read_text())
+        vectors_path = prefit / "activations.npy"
+        if provenance != {
+            "prompts_sha256": prompt_fingerprint([*original, *examples, *val]),
+            "activations_sha256": file_sha256(vectors_path),
+            "layer": TARGET_LAYER,
+        }:
+            raise ValueError("The prepared activation cache does not match the training cohort")
+        prepared = np.load(vectors_path, mmap_mode="r")
+        if prepared.dtype != np.float16 or prepared.shape != (
+            BASE_TRAIN_PROMPTS + len(val),
+            loops,
+            1,
+            POSITIONS,
+            HIDDEN,
+        ):
+            raise ValueError("Unexpected prepared activation tensor")
+        training[:BASE_TRAIN_PROMPTS] = prepared[:BASE_TRAIN_PROMPTS]
+        validation = prepared[BASE_TRAIN_PROMPTS:].copy()
+        del prepared
+    else:
+        load_core(
+            artifact_root,
+            LOCAL,
+            MEASURED,
+            original,
+            layer=TARGET_LAYER,
+            out=training[: len(original)],
+        )
+        load_core(
+            CAPTURES,
+            LOCAL,
+            MEASURED,
+            examples,
+            layer=TARGET_LAYER,
+            out=training[len(original) : BASE_TRAIN_PROMPTS],
+        )
+        validation = load_core(artifact_root, LOCAL, MEASURED, val, layer=TARGET_LAYER)
     load_core(
         COMPACT_CAPTURES,
         LOCAL,
@@ -202,7 +289,6 @@ def train(
         capture_layer=TARGET_LAYER,
         out=training[BASE_TRAIN_PROMPTS:],
     )
-    validation = load_core(artifact_root, LOCAL, MEASURED, val, layer=TARGET_LAYER)
     if yield_to_distillation and distillation_ready():
         return
     digest = hashlib.sha256(supplement.read_bytes()).hexdigest()
@@ -243,7 +329,8 @@ def train(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument(
-        "action", choices=("prepare", "prepare-supplement", "capture", "capture-hosted", "train")
+        "action",
+        choices=("prepare", "prepare-supplement", "prefit", "capture", "capture-hosted", "train"),
     )
     parser.add_argument("--cohort", type=Path, default=COHORT)
     parser.add_argument("--supplement", type=Path, default=SUPPLEMENT)
@@ -255,6 +342,7 @@ def main() -> None:
     parser.add_argument("--checkpoint", choices=("fixed", "variable"), default="variable")
     parser.add_argument("--capture-root", type=Path)
     parser.add_argument("--report", type=Path, default=REPORT)
+    parser.add_argument("--prefit", type=Path, default=PREFIT)
     parser.add_argument("--compact", action="store_true")
     parser.add_argument("--yield-to-distillation", action="store_true")
     args = parser.parse_args()
@@ -263,6 +351,9 @@ def main() -> None:
         return
     if args.action == "prepare-supplement":
         prepare_supplement(args.cohort, args.supplement)
+        return
+    if args.action == "prefit":
+        prefit_shared_cohort(args.cohort, args.prefit)
         return
     examples = load_examples(args.cohort)
     if args.action == "capture-hosted":
@@ -277,6 +368,7 @@ def main() -> None:
             args.supplement,
             yield_to_distillation=args.yield_to_distillation,
             report_path=args.report,
+            prefit=args.prefit,
         )
         return
     if args.models is None or args.offset < 0 or args.count <= 0:
